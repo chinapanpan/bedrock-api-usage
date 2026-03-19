@@ -256,6 +256,7 @@ result = json.loads(response['body'].read())
 - `disable_parallel_tool_use`: Bedrock 文档未提及，但**实测可用** (已验证)
 - `strict: true` (Structured Outputs for tools): Anthropic API 和 Bedrock 均支持，Vertex 不支持
 - Tool 定义中 `"type": "custom"` 在 Bedrock 上是**可选字段** (Anthropic API 上也是可选)
+- `eager_input_streaming`: 在 tool 定义中添加 `"eager_input_streaming": true`，可显著减少流式输出中 tool call 的延迟 (从 10-20s 降至 1-3s)。**Bedrock 支持此参数** (已验证)
 
 ### 5.2 Converse API Tool Use (差异较大)
 
@@ -755,14 +756,15 @@ body = json.dumps({
 
 | Built-in Tool | Anthropic API | Bedrock | Workaround |
 |--------------|---------------|---------|------------|
-| **Bash** (`bash_20250124`) | 支持 | **支持** (client-side) | - |
-| **Text Editor** (`text_editor_20250728`) | 支持 | **支持** (client-side, name 必须为 `str_replace_based_edit_tool`) | - |
-| **Computer Use** (`computer_20241022`) | 支持 (Beta) | **支持** (Beta, 工具 type 仍为 `computer_20241022`) | Bedrock beta header: `computer-use-2025-01-24` (Claude 3.7) 或 `computer-use-2024-10-22` |
-| **Memory** (`memory`) | 支持 | **支持** | - |
-| **Tool Search** (BM25/Regex) | 支持 | **支持** | - |
-| **Web Search** (`web_search_20260209`) | 支持 (server-side) | **不支持** | 见下方 workaround |
+| **Bash** (`bash_20250124`) | 支持 | **支持** (client-side, 需 beta `computer-use-2025-01-24`) | - |
+| **Text Editor** (`text_editor_20250728`) | 支持 | **支持** (client-side, name 必须为 `str_replace_based_edit_tool`。注: Bedrock 还识别旧版 `text_editor_20250124` (name=`str_replace_editor`) 和 `text_editor_20250429`，但 Sonnet 4.6 仅支持 `text_editor_20250728`) | - |
+| **Computer Use** (`computer_20250124`) | 支持 (Beta) | **不支持** (实测: `computer_20241022` 和 `computer_20250124` 均被拒绝) | 需转为自定义 tool 实现等效 schema |
+| **Memory** (`memory_20250801`) | 支持 | **不支持** (实测: tool type 被拒绝) | 需自建存储 (DynamoDB/Redis) + 自定义 tool |
+| **Tool Search** (BM25/Regex) | 支持 | **支持** (InvokeModel Only, 需 beta `tool-search-tool-2025-10-19`) | Anthropic 的 `advanced-tool-use-2025-11-20` 在 Bedrock 被拒，需拆分 |
+| **Web Search** (`web_search_20250305`) | 支持 (server-side) | **部分支持** (tool type 被 Bedrock 识别为合法类型，但实际调用返回验证错误，可能需账户级启用或尚未 GA) | 见下方 workaround |
 | **Web Fetch** (`web_fetch_20260209`) | 支持 (server-side) | **不支持** | 见下方 workaround |
 | **Code Execution** (`code_execution_20260120`) | 支持 (server-side) | **InvokeModel/Converse 不支持**，但 Bedrock Agents 提供 Code Interpreter | 见下方 workaround |
+| **eager_input_streaming** | 支持 (per-tool 参数) | **支持** (实测: 可减少 tool call 流式延迟从 10-20s 至 1-3s) | - |
 
 ### 14.2 Web Search Workaround
 
@@ -865,9 +867,24 @@ def web_fetch_tool(url: str) -> str:
 | **`service_tier` 参数** | 选择 `auto`/`standard_only` | Bedrock 有自己的 serviceTier 机制 |
 | **Skills API** (Beta) | 创建管理自定义技能 | 自建 |
 | **Models API** | `GET /v1/models` 列出可用模型 | `aws bedrock list-foundation-models` |
-| **Compaction** | 服务端自动上下文压缩 | **实测不可用** (InvokeModel beta flag 和 Converse 均被拒绝) |
 
-### 15.2 Token Counting 说明
+### 15.2 Bedrock 也支持的功能 (此前误报或遗漏)
+
+以下功能经实测确认 Bedrock **支持**，不属于 Anthropic 独有：
+
+| 功能 | Bedrock 支持情况 | 说明 |
+|------|-----------------|------|
+| **Compaction** | **支持** (beta `compact-2026-01-12`) | InvokeModel body 中添加 `anthropic_beta: ["compact-2026-01-12"]`。此前测试用了旧版 flag 名称导致误报不可用 |
+| **Context Editing** | **支持** (beta `context-management-2025-06-27`) | 允许编辑对话历史中的消息，实测 beta header 被接受 |
+| **1M Context Window** | **支持** (beta `context-1m-2025-08-07`) | 扩展上下文窗口至 100 万 tokens，实测 beta header 被接受 |
+| **eager_input_streaming** | **支持** | 在 tool 定义中添加 `"eager_input_streaming": true`，可减少 tool call 流式输出的延迟 (从 10-20s 降至 1-3s) |
+| **Tool Search** | **支持** (InvokeModel Only, beta `tool-search-tool-2025-10-19`) | Anthropic 的 `advanced-tool-use-2025-11-20` 在 Bedrock 被拒，需拆分为独立 beta header |
+
+> **重要**: Anthropic 的 `advanced-tool-use-2025-11-20` beta header 在 Bedrock 上被拒绝。需要拆分为：
+> - Tool Search: `tool-search-tool-2025-10-19`
+> - Tool Input Examples: `tool-examples-2025-10-29` (注意: 实测 `examples` 字段被拒为 "Extra inputs are not permitted"，当前不可用)
+
+### 15.3 Token Counting 说明
 
 **boto3 原生的 `count_tokens()` API 已支持 Claude 模型** (实测验证)。需注意：
 - 必须使用**基础模型 ID** (如 `anthropic.claude-sonnet-4-6`)，不能带 `us.`/`global.` 前缀
@@ -919,6 +936,19 @@ print(f"Exact input tokens: {result['usage']['input_tokens']}")
 | **Invocation Logging** | 完整的请求/响应日志 |
 | **VPC 支持** | 批量推理作业可配置 VPC |
 | **Bearer Token 认证** | 企业环境替代方案 (C#/Go/Java SDK) |
+
+### 16.2 Bedrock 支持的 Anthropic Beta 功能
+
+以下 Anthropic beta 功能在 Bedrock InvokeModel 上也可用 (通过 `anthropic_beta` body 字段)：
+
+| 功能 | Beta Header | 说明 |
+|------|------------|------|
+| **Compaction** | `compact-2026-01-12` | 服务端自动上下文压缩，减少长对话的 token 消耗 |
+| **Context Editing** | `context-management-2025-06-27` | 编辑对话历史中已有的消息 |
+| **1M Context Window** | `context-1m-2025-08-07` | 扩展上下文窗口至 100 万 tokens |
+| **Interleaved Thinking** | `interleaved-thinking-2025-05-14` | 多轮 thinking 交错输出 |
+| **Token Efficient Tools** | `token-efficient-tools-2025-02-19` | 减少 tool use 的 token 消耗 |
+| **Tool Search** | `tool-search-tool-2025-10-19` | BM25/Regex 工具搜索 (InvokeModel Only) |
 
 ---
 
@@ -1017,13 +1047,17 @@ options = ClaudeAgentOptions(
 - [ ] **Files API**: 改为每次请求附带 base64 内容
 - [ ] **Prompt Caching**: 移除顶层 `cache_control`，改为手动标注
 - [ ] **1h Cache TTL**: 确认目标模型是否支持，不支持则改用 5m
+- [ ] **Beta Headers**: 将 Anthropic 的 `advanced-tool-use-2025-11-20` 拆分为 `tool-search-tool-2025-10-19` 等独立 header
+- [ ] **eager_input_streaming**: 在 tool 定义中添加以减少流式延迟
 
 ### Phase 3: 缺失功能替代
 
-- [ ] **Web Search**: 接入第三方搜索 API (Tavily/Serper/Brave)
+- [ ] **Web Search**: 接入第三方搜索 API (Tavily/Serper/Brave)。注: `web_search_20250305` 类型被 Bedrock 识别但当前不可用
 - [ ] **Web Fetch**: 使用 httpx + BeautifulSoup 自建
 - [ ] **Code Execution**: 使用 Lambda 或 Docker 沙箱
 - [ ] **Token Counting**: 改用 boto3 `count_tokens()` API (需用基础模型 ID)
+- [ ] **Computer Use**: 转为自定义 tool 实现等效功能
+- [ ] **Memory Tool**: 自建存储 (DynamoDB/Redis) + 自定义 tool
 
 ### Phase 4: Agent SDK 迁移
 
@@ -1084,13 +1118,15 @@ options = ClaudeAgentOptions(
 
 ## 附录 B: Beta Headers 在 Bedrock 上的使用
 
+### B.1 格式差异
+
 ```python
-# Anthropic 直接 API - HTTP Header
+# Anthropic 直接 API - HTTP Header (逗号分隔)
 headers = {
     "anthropic-beta": "interleaved-thinking-2025-05-14,token-efficient-tools-2025-02-19"
 }
 
-# Bedrock InvokeModel - Body 字段 (数组格式)
+# Bedrock InvokeModel - Body 字段 (JSON 数组)
 body = {
     "anthropic_version": "bedrock-2023-05-31",
     "anthropic_beta": [
@@ -1099,8 +1135,41 @@ body = {
     ],
     # ... 其他参数
 }
-
 ```
+
+### B.2 Beta Headers 接受/拒绝列表 (实测验证)
+
+**已接受且功能正常:**
+
+| Beta Header | 功能 | 说明 |
+|-------------|------|------|
+| `interleaved-thinking-2025-05-14` | Interleaved Thinking | 多轮 thinking 交错输出 |
+| `token-efficient-tools-2025-02-19` | Token Efficient Tools | 减少 tool use 的 token 消耗 |
+| `compact-2026-01-12` | Compaction | 服务端上下文压缩 |
+| `context-management-2025-06-27` | Context Editing | 编辑对话历史中的消息 |
+| `context-1m-2025-08-07` | 1M Context Window | 100 万 token 上下文 |
+| `computer-use-2025-01-24` | Bash/Text Editor | Bash 和 Text Editor 工具所需 |
+| `tool-search-tool-2025-10-19` | Tool Search | 工具搜索 (InvokeModel Only) |
+| `dev-full-thinking-2025-05-14` | Full Thinking (Dev) | 开发模式完整 thinking 输出 |
+
+**被拒绝 ("invalid beta flag"):**
+
+| Beta Header | 说明 |
+|-------------|------|
+| `advanced-tool-use-2025-11-20` | 需拆分为 `tool-search-tool-2025-10-19` 和 `tool-examples-2025-10-29` |
+| `prompt-caching-scope-2026-01-05` | Prompt Caching 作用域 |
+| `files-api-2025-04-14` | Files API |
+| `code-execution-2025-08-25` | Code Execution |
+| `web-fetch-2025-09-10` | Web Fetch |
+| `skills-2025-10-02` | Skills API |
+
+**已接受但功能受限:**
+
+| Beta Header | 功能 | 说明 |
+|-------------|------|------|
+| `tool-examples-2025-10-29` | Tool Input Examples | Header 被接受，但 tool 定义中的 `examples` 字段被拒 ("Extra inputs are not permitted") |
+
+> **注意**: Anthropic 的 `advanced-tool-use-2025-11-20` 是一个聚合 header，在 Bedrock 上必须拆分为独立的 beta headers。
 
 ## 附录 C: 快速参考 - 从 Anthropic 到 Bedrock 的迁移
 

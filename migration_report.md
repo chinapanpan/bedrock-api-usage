@@ -285,8 +285,8 @@ response = client.messages.create(
 ```
 
 **差异点**:
-- `tool_choice` 选项 `"none"`: Anthropic API 支持，**Bedrock 不支持** (Bedrock 仅支持 `auto`/`any`/`tool`)
-- `disable_parallel_tool_use`: Anthropic API 支持，**Bedrock 文档中未提及**，可能不受支持
+- `tool_choice` 选项 `"none"`: Bedrock 文档未列出，但**实测可用** (已验证)
+- `disable_parallel_tool_use`: Bedrock 文档未提及，但**实测可用** (已验证)
 - `strict: true` (Structured Outputs for tools): Anthropic API 和 Bedrock 均支持，Vertex 不支持
 - Tool 定义中 `"type": "custom"` 在 Bedrock 上是**可选字段** (Anthropic API 上也是可选)
 
@@ -431,19 +431,20 @@ response = client.invoke_model(body=body, modelId="us.anthropic.claude-sonnet-4-
 | 自动缓存 (Automatic caching) | 支持 (顶层 `cache_control` 参数) | **不支持** (需手动在 content block 上添加) |
 | 最大检查点数 | 4 | 4 |
 | Lookback window | 20 blocks | 20 blocks |
-| **Opus 4.6 / Sonnet 4.6 支持** | 支持 | **截至目前未在 Bedrock 缓存支持列表中** |
+| **Sonnet 4.6 缓存** | 支持 | **实测已支持** (虽文档未列出) |
+| **Opus 4.6 缓存** | 支持 | **实测不支持** (cache tokens 始终为 0) |
 
 ### 7.2 最小 Token 要求对比
 
 | 模型 | Anthropic | Bedrock |
 |------|-----------|---------|
-| Opus 4.6 | 4096 | **截至目前未在支持列表中** |
-| Sonnet 4.6 | 2048 | **截至目前未在支持列表中** |
+| Opus 4.6 | 4096 | **不支持** (实测: cache_creation_input_tokens=0) |
+| Sonnet 4.6 | 2048 | **支持** (实测: cache_creation_input_tokens 正常返回) |
 | Opus 4.5 | 4096 | 4096 |
 | Sonnet 4.5 | 1024 | 1024 |
 | Haiku 4.5 | 4096 | 4096 |
 
-> **注意**: Opus 4.6 和 Sonnet 4.6 是最新模型，Bedrock 的 Prompt Caching 支持列表可能尚未更新。实际使用时请测试验证。
+> **注意**: Opus 4.6 在 Bedrock 上实测 Prompt Caching 不生效（cache token 始终为 0），等待 AWS 后续支持。Sonnet 4.6 虽然 AWS 文档未列出但实测已支持。
 
 ### 7.3 InvokeModel 缓存语法 (基本相同)
 
@@ -783,31 +784,63 @@ print(status['status'])  # InProgress, Completed, Failed, etc.
 
 | 方面 | Anthropic 直接 API | Bedrock |
 |------|-------------------|---------|
-| JSON Schema 输出 | `output_config.format` = JSON Schema | **支持** |
+| JSON Schema 输出 | `output_config.format` = JSON Schema | **支持，但参数格式有差异** (已验证) |
 | Tool strict mode | `strict: true` on tool definition | **支持** |
+| `additionalProperties` 要求 | 不强制 | **Bedrock 强制要求 `additionalProperties: false`** |
 | Vertex AI | 不支持 | - |
 
+### 13.1 参数格式差异 (已实测验证)
+
 ```python
-# 两个平台格式相同 (通过 InvokeModel)
+# Anthropic 直接 API - 使用 json_schema 包装
 response = client.messages.create(
-    model="...",
+    model="claude-sonnet-4-6",
     max_tokens=1024,
     output_config={
         "format": {
             "type": "json_schema",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "age": {"type": "integer"}
-                },
-                "required": ["name", "age"]
+            "json_schema": {                            # Anthropic 用 json_schema
+                "name": "person",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "age": {"type": "integer"}
+                    },
+                    "required": ["name", "age"]
+                }
             }
         }
     },
     messages=[{"role": "user", "content": "Extract info about John who is 30"}]
 )
+
+# Bedrock InvokeModel - 使用 schema 直接传
+# 注意: 1) 用 "schema" 而非 "json_schema"
+#        2) 必须设置 "additionalProperties": false
+body = json.dumps({
+    "anthropic_version": "bedrock-2023-05-31",
+    "max_tokens": 1024,
+    "output_config": {
+        "format": {
+            "type": "json_schema",
+            "schema": {                                  # Bedrock 直接用 schema
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "age": {"type": "integer"}
+                },
+                "required": ["name", "age"],
+                "additionalProperties": False            # Bedrock 强制要求!
+            }
+        }
+    },
+    "messages": [{"role": "user", "content": "Extract info about John who is 30"}]
+})
+# 返回: {"name":"John","age":30}
 ```
+
+> **实测验证**: 不设置 `additionalProperties: false` 会报错 `ValidationException: output_config.format.schema: For 'object' type, 'additionalProperties' must be explicitly set to false`
 
 ---
 
@@ -912,10 +945,10 @@ def web_fetch_tool(url: str) -> str:
 | 功能 | 说明 | Workaround |
 |------|------|------------|
 | **Files API** | 上传文件复用，避免每次请求重传 | 自建文件存储 + base64 编码，或使用 S3 (Converse API) |
-| ~~Token Counting API~~ | ~~发送前统计 token 数量~~ | **Bedrock 支持** (通过 `AnthropicBedrock` SDK 的 `count_tokens()` 方法) |
+| **Token Counting API** | 发送前统计 token 数量 | **Bedrock 不支持** (SDK 明确报错: "Token counting is not supported in Bedrock yet") |
 | **Data Residency** (`inference_geo`) | 请求级别的地理位置控制 | 使用 Bedrock 的 Regional 端点前缀 (`us.`/`eu.` 等) |
 | **Automatic Prompt Caching** | 顶层 `cache_control` 参数 | 手动在最后一个可缓存块上添加 `cache_control` |
-| **Prompt Caching (Opus 4.6/Sonnet 4.6)** | 截至目前未在 Bedrock 缓存支持列表 | 等待 AWS 更新，或使用其他已支持的模型 |
+| **Prompt Caching (Opus 4.6)** | 实测 Bedrock 上不支持 (cache tokens=0) | 等待 AWS 更新，或使用 Sonnet 4.6/Sonnet 4.5 等已支持的模型 |
 | **1 小时 Prompt Cache TTL** | 部分模型上不支持 | 仅对 Opus 4.5, Sonnet 4.5, Haiku 4.5 可用 |
 | **Web Search Tool** (server-side) | 内置网页搜索 | 自建 tool + 第三方搜索 API |
 | **Web Fetch Tool** (server-side) | 内置网页抓取 | 自建 tool + httpx |
@@ -931,22 +964,32 @@ def web_fetch_tool(url: str) -> str:
 
 ### 15.2 Token Counting 说明
 
-虽然 Anthropic 有专门的 `/v1/messages/count_tokens` 端点，Bedrock 没有完全对等的独立 API。但是：
+Anthropic 有专门的 `/v1/messages/count_tokens` 端点，Bedrock **不支持此功能**。
 
-- 使用 `AnthropicBedrock` SDK 时，可使用 `client.messages.count_tokens()` (SDK 在本地计算)
-- Bedrock Converse API 在响应中返回 `usage.totalTokens`
-- 可以使用 `anthropic` 库的 tokenizer 进行本地计算
+实测验证: `AnthropicBedrock` SDK 调用 `count_tokens()` 时直接抛出异常:
+```
+anthropic.AnthropicError: Token counting is not supported in Bedrock yet
+```
 
+**Workaround 方案**:
 ```python
-# Workaround: 使用 anthropic SDK 本地 token 计数
-from anthropic import AnthropicBedrock
+# 方案1: 使用 anthropic 的 tokenizer 本地估算
+# Claude 使用的 tokenizer 不公开，但可以用 tiktoken 的 cl100k_base 做粗略估算
+import tiktoken
+enc = tiktoken.get_encoding("cl100k_base")
+tokens = enc.encode("Hello, how are you?")
+print(f"Estimated tokens: {len(tokens)}")
 
+# 方案2: 发送一个 max_tokens=1 的请求，从 response.usage.input_tokens 获取精确计数
+# (会消耗少量 token 费用)
+from anthropic import AnthropicBedrock
 client = AnthropicBedrock(aws_region="us-west-2")
-count = client.messages.count_tokens(
+response = client.messages.create(
     model="us.anthropic.claude-sonnet-4-6",
+    max_tokens=1,
     messages=[{"role": "user", "content": "Hello, how are you?"}]
 )
-print(f"Input tokens: {count.input_tokens}")
+print(f"Exact input tokens: {response.usage.input_tokens}")
 ```
 
 ---
@@ -1071,7 +1114,7 @@ options = ClaudeAgentOptions(
 - [ ] **Web Search**: 接入第三方搜索 API (Tavily/Serper/Brave)
 - [ ] **Web Fetch**: 使用 httpx + BeautifulSoup 自建
 - [ ] **Code Execution**: 使用 Lambda 或 Docker 沙箱
-- [ ] **Token Counting**: 使用 `AnthropicBedrock` SDK 的 `count_tokens()`
+- [ ] **Token Counting**: Bedrock 不支持，使用 `max_tokens=1` 请求获取精确 input_tokens 或本地 tokenizer 估算
 
 ### Phase 4: Agent SDK 迁移
 

@@ -38,18 +38,17 @@
 | **Converse** | AWS 统一跨模型接口，参数命名不同 | 需要跨模型供应商统一调用时 |
 | **Responses** | OpenAI 兼容格式 | 需要 OpenAI 兼容或服务端工具调用时 |
 
-**迁移建议**: 使用 **Anthropic Bedrock SDK** (`pip install "anthropic[bedrock]"`) + InvokeModel，可以保持代码改动最小。SDK 内部调用 InvokeModel API，参数格式与 Anthropic 直接 API 几乎一致。
+**迁移建议**: 使用 **boto3** 调用 InvokeModel API，参数格式与 Anthropic 直接 API 非常接近，只需额外包装 `anthropic_version` 和 JSON body。
 
-### 两种 SDK 选择
+### SDK 选择
 
 ```python
-# 方式1: Anthropic Bedrock SDK (推荐 - 改动最小)
-from anthropic import AnthropicBedrock
-client = AnthropicBedrock(aws_region="us-west-2")
-
-# 方式2: boto3 (需要手动处理 JSON)
 import boto3
-client = boto3.client('bedrock-runtime', region_name='us-west-2')
+import botocore.config
+
+# 推荐配置: 增加超时 (extended thinking 场景必需)
+config = botocore.config.Config(read_timeout=300, connect_timeout=10)
+client = boto3.client('bedrock-runtime', config=config, region_name='us-west-2')
 ```
 
 ---
@@ -80,21 +79,7 @@ message = client.messages.create(
 )
 ```
 
-**Bedrock - Anthropic SDK (迁移后)**:
-```python
-from anthropic import AnthropicBedrock
-
-# 在 EC2 上有 IAM Role，无需显式传凭证
-client = AnthropicBedrock(aws_region="us-west-2")
-
-message = client.messages.create(
-    model="us.anthropic.claude-sonnet-4-6",   # 变更: 模型 ID 格式不同
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "Hello"}]
-)
-```
-
-**Bedrock - boto3 原生调用**:
+**Bedrock - boto3 调用 (迁移后)**:
 ```python
 import boto3, json
 
@@ -113,7 +98,7 @@ response = client.invoke_model(
 result = json.loads(response['body'].read())
 ```
 
-> **注意**: 使用 Anthropic Bedrock SDK 时，`anthropic_version` 由 SDK 自动处理，无需手动设置。
+> **注意**: `anthropic_version` 必须在 request body 中指定为 `"bedrock-2023-05-31"`。
 
 ---
 
@@ -157,16 +142,7 @@ def to_bedrock_model_id(anthropic_model: str) -> str:
 
 ## 4. Messages API 核心参数差异
 
-### 4.1 使用 Anthropic Bedrock SDK 时的参数差异
-
-使用 `AnthropicBedrock` SDK 时，**大部分参数保持不变**，主要差异是：
-
-| 参数 | Anthropic | Bedrock (Anthropic SDK) | 说明 |
-|------|-----------|------------------------|------|
-| `model` | `claude-sonnet-4-6` | `us.anthropic.claude-sonnet-4-6` | 必须使用 Bedrock 模型 ID |
-| 其他参数 | - | - | SDK 自动处理格式转换 |
-
-### 4.2 使用 boto3 InvokeModel 时的参数差异
+### 4.1 使用 boto3 InvokeModel 时的参数差异
 
 | 参数 | Anthropic 直接 API | Bedrock InvokeModel | 差异说明 |
 |------|-------------------|---------------------|----------|
@@ -191,7 +167,7 @@ def to_bedrock_model_id(anthropic_model: str) -> str:
 | `inference_geo` | body 中 | **不支持** | Bedrock 用模型 ID 前缀控制 |
 | `cache_control` | body 中 | body 中 | **相同** (InvokeModel 时) |
 
-### 4.3 使用 Converse API 时的参数映射
+### 4.2 使用 Converse API 时的参数映射
 
 如果选择 Converse API，参数命名完全不同：
 
@@ -230,7 +206,7 @@ def to_bedrock_model_id(anthropic_model: str) -> str:
 }
 ```
 
-### 4.4 Response 差异
+### 4.3 Response 差异
 
 | 字段 | Anthropic | Bedrock InvokeModel | Bedrock Converse |
 |------|-----------|---------------------|-----------------|
@@ -247,7 +223,7 @@ def to_bedrock_model_id(anthropic_model: str) -> str:
 
 ### 5.1 InvokeModel API (差异最小)
 
-使用 InvokeModel/Anthropic Bedrock SDK 时，Tool Use 格式与 Anthropic 直接 API **基本相同**：
+使用 InvokeModel 时，Tool Use 格式与 Anthropic 直接 API **基本相同**：
 
 ```python
 # 两个平台的 tool 定义格式完全相同
@@ -263,25 +239,16 @@ tools = [{
     }
 }]
 
-# Anthropic 直接 API
-client = Anthropic()
-response = client.messages.create(
-    model="claude-sonnet-4-6",
-    tools=tools,
-    tool_choice={"type": "auto"},
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "What's the weather in Tokyo?"}]
-)
-
-# Bedrock (Anthropic SDK) - 只需改 client 和 model
-client = AnthropicBedrock(aws_region="us-west-2")
-response = client.messages.create(
-    model="us.anthropic.claude-sonnet-4-6",  # 只需改这里
-    tools=tools,                              # 完全相同
-    tool_choice={"type": "auto"},             # 完全相同
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "What's the weather in Tokyo?"}]
-)
+# Bedrock InvokeModel - tool 定义格式完全不变
+body = json.dumps({
+    "anthropic_version": "bedrock-2023-05-31",
+    "max_tokens": 1024,
+    "tools": tools,
+    "tool_choice": {"type": "auto"},
+    "messages": [{"role": "user", "content": "What's the weather in Tokyo?"}]
+})
+response = client.invoke_model(body=body, modelId="us.anthropic.claude-sonnet-4-6")
+result = json.loads(response['body'].read())
 ```
 
 **差异点**:
@@ -387,28 +354,12 @@ config = botocore.config.Config(read_timeout=3600)  # 1小时
 client = boto3.client('bedrock-runtime', config=config, region_name='us-west-2')
 ```
 
-> **关键注意**: Anthropic SDK 自动处理超时，但 boto3 默认 1 分钟会导致 thinking 请求超时失败。使用 `AnthropicBedrock` SDK 时也建议确认超时设置。
+> **关键注意**: boto3 默认超时仅 1 分钟，会导致 thinking 请求超时失败。必须手动增加 `read_timeout`。
 
 ### 6.4 迁移代码示例
 
 ```python
-# Anthropic 直接 API
-response = client.messages.create(
-    model="claude-sonnet-4-6",
-    max_tokens=16000,
-    thinking={"type": "enabled", "budget_tokens": 10000},
-    messages=[{"role": "user", "content": "Solve this complex math problem..."}]
-)
-
-# Bedrock (Anthropic SDK) - 几乎相同
-response = bedrock_client.messages.create(
-    model="us.anthropic.claude-sonnet-4-6",  # 只需改模型 ID
-    max_tokens=16000,
-    thinking={"type": "enabled", "budget_tokens": 10000},
-    messages=[{"role": "user", "content": "Solve this complex math problem..."}]
-)
-
-# Bedrock (boto3) - 需要手动构建 body
+# Bedrock InvokeModel - thinking 参数格式与 Anthropic 直接 API 相同
 body = json.dumps({
     "anthropic_version": "bedrock-2023-05-31",
     "max_tokens": 16000,
@@ -449,33 +400,18 @@ response = client.invoke_model(body=body, modelId="us.anthropic.claude-sonnet-4-
 ### 7.3 InvokeModel 缓存语法 (基本相同)
 
 ```python
-# Anthropic 直接 API - 使用 cache_control
-response = client.messages.create(
-    model="claude-sonnet-4-6",
-    max_tokens=1024,
-    system=[
-        {
-            "type": "text",
-            "text": "You are an expert on a very long topic...",
-            "cache_control": {"type": "ephemeral"}  # 默认 5m TTL
-        }
-    ],
-    messages=[{"role": "user", "content": "Question?"}]
-)
-
-# Bedrock InvokeModel - 格式相同 (通过 Anthropic SDK)
-response = bedrock_client.messages.create(
-    model="us.anthropic.claude-sonnet-4-6",
-    max_tokens=1024,
-    system=[
-        {
-            "type": "text",
-            "text": "You are an expert on a very long topic...",
-            "cache_control": {"type": "ephemeral"}  # 相同语法
-        }
-    ],
-    messages=[{"role": "user", "content": "Question?"}]
-)
+# Bedrock InvokeModel - cache_control 语法与 Anthropic 直接 API 相同
+body = json.dumps({
+    "anthropic_version": "bedrock-2023-05-31",
+    "max_tokens": 1024,
+    "system": [{
+        "type": "text",
+        "text": "You are an expert on a very long topic...",
+        "cache_control": {"type": "ephemeral"}  # 默认 5m TTL，也可用 "ttl": "1h"
+    }],
+    "messages": [{"role": "user", "content": "Question?"}]
+})
+response = client.invoke_model(body=body, modelId="us.anthropic.claude-sonnet-4-6")
 ```
 
 ### 7.4 Converse API 缓存语法 (差异很大)
@@ -526,30 +462,11 @@ def add_cache_to_last_block(messages):
 | 启用方式 | body 中 `"stream": true` | 调用不同 API: `invoke_model_with_response_stream()` |
 | 协议 | SSE (Server-Sent Events) | SSE (通过 EventStream) |
 | 事件类型 | message_start, content_block_start, delta, stop 等 | **相同** (InvokeModel 时) |
-| SDK 辅助 | `client.messages.stream()` | `bedrock_client.messages.stream()` |
 
 ### 8.2 迁移代码示例
 
 ```python
-# Anthropic 直接 API
-with client.messages.stream(
-    model="claude-sonnet-4-6",
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "Tell me a story"}]
-) as stream:
-    for text in stream.text_stream:
-        print(text, end="", flush=True)
-
-# Bedrock (Anthropic SDK) - 用法完全相同
-with bedrock_client.messages.stream(
-    model="us.anthropic.claude-sonnet-4-6",  # 只改模型 ID
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "Tell me a story"}]
-) as stream:
-    for text in stream.text_stream:
-        print(text, end="", flush=True)
-
-# Bedrock (boto3) - 需要手动解析 EventStream
+# Bedrock boto3 - 使用 invoke_model_with_response_stream 并手动解析 EventStream
 response = client.invoke_model_with_response_stream(
     body=json.dumps({
         "anthropic_version": "bedrock-2023-05-31",
@@ -792,30 +709,8 @@ print(status['status'])  # InProgress, Completed, Failed, etc.
 ### 13.1 参数格式差异 (已实测验证)
 
 ```python
-# Anthropic 直接 API - 使用 json_schema 包装
-response = client.messages.create(
-    model="claude-sonnet-4-6",
-    max_tokens=1024,
-    output_config={
-        "format": {
-            "type": "json_schema",
-            "json_schema": {                            # Anthropic 用 json_schema
-                "name": "person",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "age": {"type": "integer"}
-                    },
-                    "required": ["name", "age"]
-                }
-            }
-        }
-    },
-    messages=[{"role": "user", "content": "Extract info about John who is 30"}]
-)
-
-# Bedrock InvokeModel - 使用 schema 直接传
+# Anthropic 直接 API 用 "json_schema" 包装键
+# Bedrock InvokeModel 用 "schema" 直接传
 # 注意: 1) 用 "schema" 而非 "json_schema"
 #        2) 必须设置 "additionalProperties": false
 body = json.dumps({
@@ -945,7 +840,7 @@ def web_fetch_tool(url: str) -> str:
 | 功能 | 说明 | Workaround |
 |------|------|------------|
 | **Files API** | 上传文件复用，避免每次请求重传 | 自建文件存储 + base64 编码，或使用 S3 (Converse API) |
-| **Token Counting API** | 发送前统计 token 数量 | **AnthropicBedrock SDK 不支持** (报错)，但 **boto3 `count_tokens()` 已支持** (需用基础模型 ID) |
+| **Token Counting API** | 发送前统计 token 数量 | **boto3 `count_tokens()` 已支持** (需用基础模型 ID，不能带 `us.`/`global.` 前缀) |
 | **Data Residency** (`inference_geo`) | 请求级别的地理位置控制 | 使用 Bedrock 的 Regional 端点前缀 (`us.`/`eu.` 等) |
 | **Automatic Prompt Caching** | 顶层 `cache_control` 参数 | 手动在最后一个可缓存块上添加 `cache_control` |
 | **Prompt Caching (Opus 4.6)** | 实测 Bedrock 上不支持 (cache tokens=0) | 等待 AWS 更新，或使用 Sonnet 4.6/Sonnet 4.5 等已支持的模型 |
@@ -964,12 +859,7 @@ def web_fetch_tool(url: str) -> str:
 
 ### 15.2 Token Counting 说明
 
-Anthropic 有专门的 `/v1/messages/count_tokens` 端点。`AnthropicBedrock` SDK 调用 `count_tokens()` 时会抛出异常:
-```
-anthropic.AnthropicError: Token counting is not supported in Bedrock yet
-```
-
-但 **boto3 原生的 `count_tokens()` API 实际上已支持 Claude 模型** (实测验证)。需注意：
+**boto3 原生的 `count_tokens()` API 已支持 Claude 模型** (实测验证)。需注意：
 - 必须使用**基础模型 ID** (如 `anthropic.claude-sonnet-4-6`)，不能带 `us.`/`global.` 前缀
 - 输入格式使用 Converse 风格的 `input.converse.messages`
 
@@ -991,17 +881,15 @@ print(f"Input tokens: {resp['inputTokens']}")  # 精确计数
 
 # 方案2: 发送一个 max_tokens=1 的请求，从 response.usage.input_tokens 获取精确计数
 # (会消耗少量 token 费用)
-from anthropic import AnthropicBedrock
-client = AnthropicBedrock(aws_region="us-west-2")
-response = client.messages.create(
-    model="us.anthropic.claude-sonnet-4-6",
-    max_tokens=1,
-    messages=[{"role": "user", "content": "Hello, how are you?"}]
-)
-print(f"Exact input tokens: {response.usage.input_tokens}")
+body = json.dumps({
+    "anthropic_version": "bedrock-2023-05-31",
+    "max_tokens": 1,
+    "messages": [{"role": "user", "content": "Hello, how are you?"}]
+})
+response = client.invoke_model(body=body, modelId="us.anthropic.claude-sonnet-4-6")
+result = json.loads(response['body'].read())
+print(f"Exact input tokens: {result['usage']['input_tokens']}")
 ```
-
-> **注意**: Anthropic 功能矩阵显示 Bedrock 理论上支持 token counting，但 AnthropicBedrock SDK 尚未适配。建议直接使用 boto3 `count_tokens()` API，或关注后续 SDK 更新。
 
 ---
 
@@ -1106,11 +994,11 @@ options = ClaudeAgentOptions(
 
 ### Phase 1: 基础迁移 (最小改动)
 
-- [ ] 安装 Bedrock SDK: `pip install "anthropic[bedrock]"`
-- [ ] 将 `Anthropic()` 改为 `AnthropicBedrock(aws_region="...")`
+- [ ] 安装 boto3: `pip install boto3`
+- [ ] 替换 API client 初始化为 `boto3.client('bedrock-runtime', ...)`
 - [ ] 将所有模型 ID 替换为 Bedrock 格式
 - [ ] 确认 EC2 IAM Role 有 `bedrock:InvokeModel` 和 `bedrock:InvokeModelWithResponseStream` 权限
-- [ ] 设置 boto3 超时: `read_timeout=3600` (如使用 extended thinking)
+- [ ] 设置 boto3 超时: `read_timeout=300` (如使用 extended thinking 可设更大值)
 
 ### Phase 2: 功能适配
 
@@ -1125,7 +1013,7 @@ options = ClaudeAgentOptions(
 - [ ] **Web Search**: 接入第三方搜索 API (Tavily/Serper/Brave)
 - [ ] **Web Fetch**: 使用 httpx + BeautifulSoup 自建
 - [ ] **Code Execution**: 使用 Lambda 或 Docker 沙箱
-- [ ] **Token Counting**: AnthropicBedrock SDK 不支持，改用 boto3 `count_tokens()` API (需用基础模型 ID)
+- [ ] **Token Counting**: 改用 boto3 `count_tokens()` API (需用基础模型 ID)
 
 ### Phase 4: Agent SDK 迁移
 
@@ -1202,27 +1090,36 @@ body = {
     # ... 其他参数
 }
 
-# Bedrock Anthropic SDK - 自动处理
-response = bedrock_client.messages.create(
-    model="...",
-    betas=["interleaved-thinking-2025-05-14"],  # SDK 处理转换
-    # ...
-)
 ```
 
-## 附录 C: 快速参考 - 从 Anthropic 到 Bedrock 的一行改动
+## 附录 C: 快速参考 - 从 Anthropic 到 Bedrock 的迁移
 
 ```python
-# 如果你当前的代码是这样:
+# 迁移前 (Anthropic 直接 API):
 from anthropic import Anthropic
-client = Anthropic()
-response = client.messages.create(model="claude-sonnet-4-6", ...)
+client = Anthropic(api_key="sk-xxx")
+response = client.messages.create(
+    model="claude-sonnet-4-6",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello"}]
+)
+text = response.content[0].text
 
-# 最简迁移 (只改两行):
-from anthropic import AnthropicBedrock                         # 改 import
-client = AnthropicBedrock(aws_region="us-west-2")              # 改 client
-response = client.messages.create(model="us.anthropic.claude-sonnet-4-6", ...)  # 改 model ID
-# 其他所有参数 (messages, tools, thinking, etc.) 保持不变!
+# 迁移后 (Bedrock boto3):
+import boto3, json, botocore.config
+config = botocore.config.Config(read_timeout=300)
+client = boto3.client('bedrock-runtime', config=config, region_name='us-west-2')
+response = client.invoke_model(
+    body=json.dumps({
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hello"}]
+    }),
+    modelId="us.anthropic.claude-sonnet-4-6"
+)
+result = json.loads(response['body'].read())
+text = result['content'][0]['text']
+# messages, tools, thinking 等内层参数格式保持不变!
 ```
 
 ---

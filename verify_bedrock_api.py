@@ -71,24 +71,7 @@ def test_basic_invoke_model():
 
 
 # ============================================================
-# 2. Anthropic Bedrock SDK 调用
-# ============================================================
-def test_anthropic_bedrock_sdk():
-    from anthropic import AnthropicBedrock
-    client = AnthropicBedrock(aws_region=REGION)
-    message = client.messages.create(
-        model=SONNET_MODEL,
-        max_tokens=100,
-        messages=[{"role": "user", "content": "Say hi in one word."}]
-    )
-    assert message.type == 'message'
-    assert message.role == 'assistant'
-    assert len(message.content) > 0
-    return f"Model: {message.model}, Output: {message.content[0].text[:100]}"
-
-
-# ============================================================
-# 3. 模型 ID 格式验证 (Global, Regional, Base)
+# 2. 模型 ID 格式验证 (Global, Regional, Base)
 # ============================================================
 def test_model_id_global():
     body = json.dumps({
@@ -187,27 +170,7 @@ def test_streaming():
 
 
 # ============================================================
-# 7. Streaming via Anthropic SDK
-# ============================================================
-def test_streaming_sdk():
-    from anthropic import AnthropicBedrock
-    client = AnthropicBedrock(aws_region=REGION)
-
-    text_parts = []
-    with client.messages.stream(
-        model=HAIKU_MODEL,
-        max_tokens=100,
-        messages=[{"role": "user", "content": "Count 1 to 5"}]
-    ) as stream:
-        for text in stream.text_stream:
-            text_parts.append(text)
-
-    full = ''.join(text_parts)
-    return f"Streamed text: {full[:100]}"
-
-
-# ============================================================
-# 8. Tool Use (InvokeModel)
+# 7. Tool Use (InvokeModel)
 # ============================================================
 def test_tool_use():
     body = json.dumps({
@@ -687,20 +650,7 @@ def test_converse_top_k():
 
 
 # ============================================================
-# 27. Token Counting (via Anthropic SDK)
-# ============================================================
-def test_token_counting():
-    from anthropic import AnthropicBedrock
-    client = AnthropicBedrock(aws_region=REGION)
-    count = client.messages.count_tokens(
-        model=HAIKU_MODEL,
-        messages=[{"role": "user", "content": "Hello, how are you doing today?"}]
-    )
-    return f"Token count: {count.input_tokens}"
-
-
-# ============================================================
-# 28. Multi-turn Tool Use (complete tool loop)
+# 27. Multi-turn Tool Use (complete tool loop)
 # ============================================================
 def test_multi_turn_tool_use():
     tools = [{
@@ -856,29 +806,27 @@ if __name__ == "__main__":
 
     # Basic connectivity
     test("1. InvokeModel 基础调用 (Sonnet 4.5)", test_basic_invoke_model)
-    test("2. Anthropic Bedrock SDK 调用", test_anthropic_bedrock_sdk)
 
     # Model IDs
-    test("3a. Global 模型 ID", test_model_id_global)
-    test("3b. Sonnet 4.6 模型", test_model_id_sonnet46)
-    test("3c. Opus 4.6 模型", test_model_id_opus46)
-    test("3d. Haiku 4.5 模型", test_model_id_haiku45)
+    test("2a. Global 模型 ID", test_model_id_global)
+    test("2b. Sonnet 4.6 模型", test_model_id_sonnet46)
+    test("2c. Opus 4.6 模型", test_model_id_opus46)
+    test("2d. Haiku 4.5 模型", test_model_id_haiku45)
 
     # Parameters
     test("4. System Prompt", test_system_prompt)
     test("5. Sampling 参数 (temperature, top_k, stop_sequences)", test_sampling_params)
 
     # Streaming
-    test("6. Streaming (boto3)", test_streaming)
-    test("7. Streaming (Anthropic SDK)", test_streaming_sdk)
+    test("5. Streaming (boto3)", test_streaming)
 
     # Tool Use
-    test("8. Tool Use - auto", test_tool_use)
-    test("9. Tool Use - tool_choice 'any'", test_tool_choice_any)
-    test("10. Tool Use - tool_choice 'tool' (specific)", test_tool_choice_specific)
-    test("11. Tool Use - tool_choice 'none' (预期失败)", test_tool_choice_none)
-    test("28. Multi-turn Tool Use (完整工具循环)", test_multi_turn_tool_use)
-    test("29. disable_parallel_tool_use (预期可能不支持)", test_disable_parallel_tool_use)
+    test("6. Tool Use - auto", test_tool_use)
+    test("7. Tool Use - tool_choice 'any'", test_tool_choice_any)
+    test("8. Tool Use - tool_choice 'tool' (specific)", test_tool_choice_specific)
+    test("9. Tool Use - tool_choice 'none' (预期失败)", test_tool_choice_none)
+    test("10. Multi-turn Tool Use (完整工具循环)", test_multi_turn_tool_use)
+    test("11. disable_parallel_tool_use (预期可能不支持)", test_disable_parallel_tool_use)
 
     # Extended Thinking
     test("12. Extended Thinking (Sonnet 4.5)", test_extended_thinking)
@@ -892,32 +840,31 @@ if __name__ == "__main__":
 
     # Vision
     test("18. Vision - base64 PNG", test_vision_base64)
-    test("30. Vision - URL image (预期不支持)", test_url_image_not_supported)
+    test("19. Vision - URL image (预期不支持)", test_url_image_not_supported)
 
     # PDF
-    test("19. PDF Support (base64)", test_pdf_support)
+    test("20. PDF Support (base64)", test_pdf_support)
 
     # Citations
-    test("20. Citations", test_citations)
+    test("21. Citations", test_citations)
 
     # Structured Outputs
-    test("21. Structured Outputs (JSON Schema)", test_structured_outputs)
+    test("22. Structured Outputs (JSON Schema)", test_structured_outputs)
 
     # Effort
-    test("22. Effort 参数 (Opus 4.5)", test_effort_parameter)
+    test("23. Effort 参数 (Opus 4.5)", test_effort_parameter)
 
     # Converse API
-    test("23. Converse API 基础调用", test_converse_api)
-    test("24. Converse API Tool Use", test_converse_tool_use)
-    test("25. Converse API Prompt Caching (cachePoint)", test_converse_cache)
-    test("26. Converse API top_k (additionalModelRequestFields)", test_converse_top_k)
+    test("24. Converse API 基础调用", test_converse_api)
+    test("25. Converse API Tool Use", test_converse_tool_use)
+    test("26. Converse API Prompt Caching (cachePoint)", test_converse_cache)
+    test("27. Converse API top_k (additionalModelRequestFields)", test_converse_top_k)
 
     # Token Counting
-    test("27. Token Counting (Anthropic SDK)", test_token_counting)
-    test("31. Token Counting (boto3 count_tokens API)", test_boto3_count_tokens)
+    test("28. Token Counting (boto3 count_tokens API)", test_boto3_count_tokens)
 
     # 1h Cache TTL
-    test("32. 1h Cache TTL (Sonnet 4.5 InvokeModel)", test_1h_cache_ttl)
+    test("29. 1h Cache TTL (Sonnet 4.5 InvokeModel)", test_1h_cache_ttl)
 
     # ============================================================
     # SUMMARY

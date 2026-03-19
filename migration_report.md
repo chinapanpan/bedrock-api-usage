@@ -855,7 +855,7 @@ def web_fetch_tool(url: str) -> str:
 | **`service_tier` 参数** | 选择 `auto`/`standard_only` | Bedrock 有自己的 serviceTier 机制 |
 | **Skills API** (Beta) | 创建管理自定义技能 | 自建 |
 | **Models API** | `GET /v1/models` 列出可用模型 | `aws bedrock list-foundation-models` |
-| **Compaction** | 服务端自动上下文压缩 | Bedrock 也支持 (Beta) |
+| **Compaction** | 服务端自动上下文压缩 | **实测不可用** (InvokeModel beta flag 和 Converse 均被拒绝) |
 
 ### 15.2 Token Counting 说明
 

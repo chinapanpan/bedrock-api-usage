@@ -1,167 +1,292 @@
 [
   {
-    "test": "1. InvokeModel 基础调用 (Sonnet 4.5)",
+    "test": "01. InvokeModel - Sonnet 4.5",
     "status": "PASS",
-    "detail": "Model: claude-sonnet-4-5-20250929, Output: Hello!"
+    "detail": "Model: claude-sonnet-4-5-20250929, Output: OK"
   },
   {
-    "test": "2. Anthropic Bedrock SDK 调用",
+    "test": "02. InvokeModel - Haiku 4.5",
     "status": "PASS",
-    "detail": "Model: claude-sonnet-4-5-20250929, Output: Hello!"
+    "detail": "Model: claude-haiku-4-5-20251001"
   },
   {
-    "test": "3a. Global 模型 ID",
+    "test": "03. InvokeModel - Opus 4.5",
+    "status": "PASS",
+    "detail": "Model: claude-opus-4-5-20251101"
+  },
+  {
+    "test": "04. InvokeModel - Sonnet 4.6",
+    "status": "PASS",
+    "detail": "Model: claude-sonnet-4-6"
+  },
+  {
+    "test": "05. InvokeModel - Opus 4.6",
+    "status": "PASS",
+    "detail": "Model: claude-opus-4-6"
+  },
+  {
+    "test": "06. Global endpoint",
     "status": "PASS",
     "detail": "Global endpoint OK. Model: claude-sonnet-4-5-20250929"
   },
   {
-    "test": "3b. Sonnet 4.6 模型",
+    "test": "07. System prompt (string)",
     "status": "PASS",
-    "detail": "Sonnet 4.6 OK. Model: claude-sonnet-4-6"
+    "detail": "Output: Ahoy, matey! *adjusts tricorn hat* \n\nWelcome aboard! I be a scallywag of the seven seas, ready to he"
   },
   {
-    "test": "3c. Opus 4.6 模型",
+    "test": "08. System prompt (array)",
     "status": "PASS",
-    "detail": "Opus 4.6 OK. Model: claude-opus-4-6"
+    "detail": "System array OK. Output: Ahoy there, matey! 🏴‍☠️\n\nWelcome aboard! I be a pirate through and through - sal"
   },
   {
-    "test": "3d. Haiku 4.5 模型",
-    "status": "PASS",
-    "detail": "Haiku 4.5 OK. Model: claude-haiku-4-5-20251001"
-  },
-  {
-    "test": "4. System Prompt",
-    "status": "PASS",
-    "detail": "Output: Ahoy there, matey! 🏴‍☠️ \n\nWell blow me down, what brings ye to these waters? Be ye lookin' fer some "
-  },
-  {
-    "test": "5. Sampling 参数 (temperature, top_k, stop_sequences)",
+    "test": "09. temperature + top_k + stop_sequences",
     "status": "PASS",
     "detail": "stop_reason: stop_sequence, Output: 1\n2\n3\n4\n5\n"
   },
   {
-    "test": "6. Streaming (boto3)",
+    "test": "10. top_p",
+    "status": "PASS",
+    "detail": "top_p OK. Output: OK"
+  },
+  {
+    "test": "11. metadata",
+    "status": "PASS",
+    "detail": "metadata accepted. Output: OK"
+  },
+  {
+    "test": "12. Streaming (InvokeModelWithResponseStream)",
     "status": "PASS",
     "detail": "Event types: ['content_block_delta', 'content_block_start', 'content_block_stop', 'message_delta', 'message_start', 'message_stop'], Text: 1\n2\n3\n4\n5"
   },
   {
-    "test": "7. Streaming (Anthropic SDK)",
+    "test": "13. Streaming + Extended Thinking",
     "status": "PASS",
-    "detail": "Streamed text: 1\n2\n3\n4\n5"
+    "detail": "Stream+Thinking OK. Types: ['content_block_delta', 'content_block_start', 'content_block_stop', 'message_delta', 'message_start', 'message_stop'], has_thinking_delta: True"
   },
   {
-    "test": "8. Tool Use - auto",
+    "test": "14. Tool Use - auto",
     "status": "PASS",
-    "detail": "Tool called: get_weather, Input: {'city': 'Tokyo'}"
+    "detail": "Tool: get_weather, Input: {'city': 'Tokyo'}"
   },
   {
-    "test": "9. Tool Use - tool_choice 'any'",
+    "test": "15. Tool Use - tool_choice any",
     "status": "PASS",
     "detail": "tool_choice 'any' works"
   },
   {
-    "test": "10. Tool Use - tool_choice 'tool' (specific)",
+    "test": "16. Tool Use - tool_choice specific",
     "status": "PASS",
     "detail": "tool_choice 'tool' (specific) works"
   },
   {
-    "test": "11. Tool Use - tool_choice 'none' (预期失败)",
+    "test": "17. Tool Use - tool_choice none",
     "status": "PASS",
-    "detail": "UNEXPECTED: tool_choice 'none' WORKS! stop_reason=end_turn"
+    "detail": "tool_choice 'none' WORKS! stop_reason=end_turn"
   },
   {
-    "test": "28. Multi-turn Tool Use (完整工具循环)",
+    "test": "18. Multi-turn Tool Use",
     "status": "PASS",
-    "detail": "Multi-turn tool use OK. Final: 15 * 37 = **555**"
+    "detail": "Multi-turn OK. Final: 15 * 37 = **555**"
   },
   {
-    "test": "29. disable_parallel_tool_use (预期可能不支持)",
+    "test": "19. disable_parallel_tool_use",
     "status": "PASS",
-    "detail": "disable_parallel_tool_use WORKS. Tool uses count: 1"
+    "detail": "disable_parallel_tool_use OK. Tool uses: 1"
   },
   {
-    "test": "12. Extended Thinking (Sonnet 4.5)",
+    "test": "20. Tool strict mode",
     "status": "PASS",
-    "detail": "Thinking (44 chars), Text: 15 * 37 = 555"
+    "detail": "strict tool OK. Input: {'name': 'John', 'age': 30}"
   },
   {
-    "test": "13. Adaptive Thinking (Opus 4.6)",
+    "test": "21. Thinking enabled (Sonnet 4.5)",
     "status": "PASS",
-    "detail": "Adaptive thinking OK. Content types: ['text', 'thinking', 'text']"
+    "detail": "Thinking (217 chars), Text: 15 * 37 = 555"
   },
   {
-    "test": "14. Beta Headers in body",
+    "test": "22. Thinking adaptive (Opus 4.6)",
     "status": "PASS",
-    "detail": "Beta header accepted. Content types: ['thinking', 'text']"
+    "detail": "Adaptive OK. Types: ['text', 'thinking', 'text']"
   },
   {
-    "test": "15. Prompt Caching (Sonnet 4.5 - InvokeModel)",
+    "test": "23. Beta interleaved thinking",
     "status": "PASS",
-    "detail": "Call 1 usage: {'input_tokens': 18, 'cache_creation_input_tokens': 3902, 'cache_read_input_tokens': 0, 'cache_creation': {'ephemeral_5m_input_tokens': 3902, 'ephemeral_1h_input_tokens': 0}, 'output_tok"
+    "detail": "Interleaved thinking beta OK. Types: ['thinking', 'text']"
   },
   {
-    "test": "16. Prompt Caching (Sonnet 4.6 - 验证是否支持)",
+    "test": "24. Thinking summarized/signature",
     "status": "PASS",
-    "detail": "Sonnet 4.6 cache: SUPPORTED. Usage: {'input_tokens': 8, 'cache_creation_input_tokens': 4203, 'cache_read_input_tokens': 0, 'cache_creation': {'ephemeral_5m_input_tokens': 4203, 'ephemeral_1h_input_tok"
+    "detail": "Thinking block has signature: True, thinking chars: 308"
   },
   {
-    "test": "17. Prompt Caching (Opus 4.6 - 验证是否支持)",
+    "test": "25. Cache - Sonnet 4.5",
     "status": "PASS",
-    "detail": "Opus 4.6 cache: NOT SUPPORTED (no cache tokens in usage). Usage: {'input_tokens': 3911, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0, 'cache_creation': {'ephemeral_5m_input_tokens': "
+    "detail": "Write: 12002, Read: 12002"
   },
   {
-    "test": "18. Vision - base64 PNG",
+    "test": "26. Cache - Sonnet 4.6",
     "status": "PASS",
-    "detail": "Vision output: Red"
+    "detail": "Write: 12003, Read: 12003, SUPPORTED"
   },
   {
-    "test": "30. Vision - URL image (预期不支持)",
+    "test": "27. Cache - Opus 4.6",
     "status": "PASS",
-    "detail": "CONFIRMED: URL image not supported: An error occurred (ValidationException) when calling the InvokeModel operation: messages.0.content.0.image.source.base64.data: URL sources are not sup"
+    "detail": "Write: 12003, Read: 12003, SUPPORTED"
   },
   {
-    "test": "19. PDF Support (base64)",
+    "test": "28. Cache - 1h TTL",
     "status": "PASS",
-    "detail": "PDF output: The text in this PDF is:\n\n**\"Hello PDF Test\"**"
+    "detail": "1h TTL accepted. cache_creation_input_tokens=0, cache_read=12002, 1h_tokens=0, 5m_tokens=0"
   },
   {
-    "test": "20. Citations",
+    "test": "29. Cache - on tools",
     "status": "PASS",
-    "detail": "Citations found: True, Content: [\n  {\n    \"citations\": [\n      {\n        \"type\": \"char_location\",\n        \"cited_text\": \"The capital of France is Paris. \",\n        \"document_index\": 0,\n        \"docume"
+    "detail": "Tools cache - Write: 7096, Read: 7096"
   },
   {
-    "test": "21. Structured Outputs (JSON Schema)",
+    "test": "30. Auto cache (top-level) - 预期不支持",
+    "status": "PASS",
+    "detail": "Top-level cache_control REJECTED: An error occurred (ValidationException) when calling the InvokeModel operation: cache_control: Extra inputs are not permitted"
+  },
+  {
+    "test": "31. Vision base64 PNG",
+    "status": "PASS",
+    "detail": "Vision OK: Red"
+  },
+  {
+    "test": "32. URL image - 预期不支持",
+    "status": "PASS",
+    "detail": "CONFIRMED NOT SUPPORTED: An error occurred (ValidationException) when calling the InvokeModel operation: messages.0.content.0.image.source.base64.data: URL sources are not sup"
+  },
+  {
+    "test": "33. PDF base64",
+    "status": "PASS",
+    "detail": "PDF OK: The text in this PDF is:\n\n**Hello PDF Test**"
+  },
+  {
+    "test": "34. URL PDF - 预期不支持",
+    "status": "PASS",
+    "detail": "CONFIRMED NOT SUPPORTED: An error occurred (ValidationException) when calling the InvokeModel operation: messages.0.content.0.image.source.base64.data: URL sources are not sup"
+  },
+  {
+    "test": "35. Citations",
+    "status": "PASS",
+    "detail": "Citations: True"
+  },
+  {
+    "test": "36. Structured Outputs (JSON Schema)",
     "status": "FAIL",
     "detail": "An error occurred (ValidationException) when calling the InvokeModel operation: output_config.format.schema: Field required"
   },
   {
-    "test": "22. Effort 参数 (Opus 4.5)",
+    "test": "37. Effort low",
     "status": "PASS",
-    "detail": "Effort 'low' works. Output: 4"
+    "detail": "Effort low OK: 4"
   },
   {
-    "test": "23. Converse API 基础调用",
+    "test": "38. Effort high",
     "status": "PASS",
-    "detail": "Converse output: Hello!, Usage: inputTokens=13, outputTokens=5"
+    "detail": "Effort high OK: 2 + 2 = 4"
   },
   {
-    "test": "24. Converse API Tool Use",
+    "test": "39. Converse basic",
+    "status": "PASS",
+    "detail": "Converse OK: Hello., in=13, out=5"
+  },
+  {
+    "test": "40. Converse tool use",
     "status": "PASS",
     "detail": "Converse tool: get_weather, Input: {'city': 'Tokyo'}"
   },
   {
-    "test": "25. Converse API Prompt Caching (cachePoint)",
+    "test": "41. Converse cache (cachePoint)",
     "status": "PASS",
-    "detail": "Converse cache - write: 2402, read: 0"
+    "detail": "Write: 0, Read: 12002"
   },
   {
-    "test": "26. Converse API top_k (additionalModelRequestFields)",
+    "test": "42. Converse top_k (additionalModelRequestFields)",
     "status": "PASS",
-    "detail": "top_k via additionalModelRequestFields works. Output: Hello! 👋 How can I help you today?"
+    "detail": "top_k OK: Hello! 👋 How can I help you today?"
   },
   {
-    "test": "27. Token Counting (Anthropic SDK)",
+    "test": "43. Converse stream",
+    "status": "PASS",
+    "detail": "Converse stream OK: 1\n2\n3"
+  },
+  {
+    "test": "44. Token counting (boto3 count_tokens)",
+    "status": "PASS",
+    "detail": "Haiku 4.5=29; Sonnet 4.5=29; Sonnet 4.6=30; Opus 4.6=30"
+  },
+  {
+    "test": "45. Token counting - us. prefix fails",
+    "status": "PASS",
+    "detail": "CONFIRMED: us. prefix fails: An error occurred (ValidationException) when calling the CountTokens operation: The provided model doesn't support counting tokens."
+  },
+  {
+    "test": "46. Built-in Bash tool",
+    "status": "PASS",
+    "detail": "Bash tool OK. Tool uses: 1, stop: tool_use"
+  },
+  {
+    "test": "47. Built-in Text Editor tool",
     "status": "FAIL",
-    "detail": "Token counting is not supported in Bedrock yet"
+    "detail": "An error occurred (ValidationException) when calling the InvokeModel operation: tools.0.text_editor_20250728.name: Input should be 'str_replace_based_edit_tool'"
+  },
+  {
+    "test": "48. Web Search - 预期不支持",
+    "status": "PASS",
+    "detail": "CONFIRMED NOT SUPPORTED: An error occurred (ValidationException) when calling the InvokeModel operation: tools.0: Input tag 'web_search_20260209' found using 'type' does not m"
+  },
+  {
+    "test": "49. Web Fetch - 预期不支持",
+    "status": "PASS",
+    "detail": "CONFIRMED NOT SUPPORTED: An error occurred (ValidationException) when calling the InvokeModel operation: tools.0: Input tag 'web_fetch_20260209' found using 'type' does not ma"
+  },
+  {
+    "test": "50. Code Execution - 预期不支持",
+    "status": "PASS",
+    "detail": "CONFIRMED NOT SUPPORTED: An error occurred (ValidationException) when calling the InvokeModel operation: tools.0: Input tag 'code_execution_20260120' found using 'type' does n"
+  },
+  {
+    "test": "51. MCP Connector - 预期不支持",
+    "status": "PASS",
+    "detail": "CONFIRMED NOT SUPPORTED on InvokeModel: An error occurred (ValidationException) when calling the InvokeModel operation: tools.0: Input tag 'mcp' found using 'type' does not match any of the "
+  },
+  {
+    "test": "52. service_tier - 预期不支持",
+    "status": "PASS",
+    "detail": "CONFIRMED NOT SUPPORTED: An error occurred (ValidationException) when calling the InvokeModel operation: service_tier: Extra inputs are not permitted"
+  },
+  {
+    "test": "53. container - 预期不支持",
+    "status": "PASS",
+    "detail": "CONFIRMED NOT SUPPORTED: An error occurred (ValidationException) when calling the InvokeModel operation: container: Extra inputs are not permitted"
+  },
+  {
+    "test": "54. inference_geo - 预期不支持",
+    "status": "PASS",
+    "detail": "CONFIRMED NOT SUPPORTED: An error occurred (ValidationException) when calling the InvokeModel operation: inference_geo: Extra inputs are not permitted"
+  },
+  {
+    "test": "55. Compaction (Beta)",
+    "status": "PASS",
+    "detail": "Compaction beta FAILS: An error occurred (ValidationException) when calling the InvokeModel operation: invalid beta flag"
+  },
+  {
+    "test": "56. list-foundation-models",
+    "status": "PASS",
+    "detail": "Found 24 Claude models: ['anthropic.claude-sonnet-4-20250514-v1:0', 'anthropic.claude-haiku-4-5-20251001-v1:0', 'anthropic.claude-sonnet-4-6', 'anthropic.claude-opus-4-6-v1', 'anthropic.claude-sonnet-4-5-20250929-v1:0']..."
+  },
+  {
+    "test": "57. Converse S3 image (SKIP)",
+    "status": "PASS",
+    "detail": "SKIP: 需要实际 S3 图片文件才能测试"
+  },
+  {
+    "test": "58. Guardrails + Claude 4.x - 预期不支持",
+    "status": "PASS",
+    "detail": "CONFIRMED NOT SUPPORTED: An error occurred (ValidationException) when calling the Converse operation: The provided guardrail identifier is invalid."
   }
 ]

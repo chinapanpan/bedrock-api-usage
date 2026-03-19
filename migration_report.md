@@ -383,19 +383,19 @@ response = client.invoke_model(body=body, modelId="us.anthropic.claude-sonnet-4-
 | 最大检查点数 | 4 | 4 |
 | Lookback window | 20 blocks | 20 blocks |
 | **Sonnet 4.6 缓存** | 支持 | **实测已支持** (虽文档未列出) |
-| **Opus 4.6 缓存** | 支持 | **实测不支持** (cache tokens 始终为 0) |
+| **Opus 4.6 缓存** | 支持 | **实测已支持** (虽文档未列出，最小 4096 tokens，需确保超过阈值) |
 
 ### 7.2 最小 Token 要求对比
 
 | 模型 | Anthropic | Bedrock |
 |------|-----------|---------|
-| Opus 4.6 | 4096 | **不支持** (实测: cache_creation_input_tokens=0) |
+| Opus 4.6 | 4096 | **实测已支持** (文档未列出，但 16000+ tokens 测试 cache 正常生效) |
 | Sonnet 4.6 | 2048 | **支持** (实测: cache_creation_input_tokens 正常返回) |
 | Opus 4.5 | 4096 | 4096 |
 | Sonnet 4.5 | 1024 | 1024 |
 | Haiku 4.5 | 4096 | 4096 |
 
-> **注意**: Opus 4.6 在 Bedrock 上实测 Prompt Caching 不生效（cache token 始终为 0），等待 AWS 后续支持。Sonnet 4.6 虽然 AWS 文档未列出但实测已支持。
+> **注意**: Opus 4.6 和 Sonnet 4.6 虽未列入 AWS 官方文档的支持列表，但实测 Prompt Caching 均已生效。Opus 4.6 最小缓存阈值为 4096 tokens，需确保缓存内容超过此阈值。
 
 ### 7.3 InvokeModel 缓存语法 (基本相同)
 
@@ -843,7 +843,7 @@ def web_fetch_tool(url: str) -> str:
 | **Token Counting API** | 发送前统计 token 数量 | **boto3 `count_tokens()` 已支持** (需用基础模型 ID，不能带 `us.`/`global.` 前缀) |
 | **Data Residency** (`inference_geo`) | 请求级别的地理位置控制 | 使用 Bedrock 的 Regional 端点前缀 (`us.`/`eu.` 等) |
 | **Automatic Prompt Caching** | 顶层 `cache_control` 参数 | 手动在最后一个可缓存块上添加 `cache_control` |
-| **Prompt Caching (Opus 4.6)** | 实测 Bedrock 上不支持 (cache tokens=0) | 等待 AWS 更新，或使用 Sonnet 4.6/Sonnet 4.5 等已支持的模型 |
+| **Prompt Caching (Opus 4.6)** | ~~此前误报不支持~~ **实测已支持** (文档未列出，最小 4096 tokens) | 确保缓存内容超过 4096 token 阈值 |
 | **1 小时 Prompt Cache TTL** | 部分支持 (见注) | Anthropic 功能矩阵排除 Bedrock，但 AWS 文档列出 Opus 4.5/Sonnet 4.5/Haiku 4.5 支持。**实测 Sonnet 4.5 确认可用** (以实测为准) |
 | **Web Search Tool** (server-side) | 内置网页搜索 | 自建 tool + 第三方搜索 API |
 | **Web Fetch Tool** (server-side) | 内置网页抓取 | 自建 tool + httpx |

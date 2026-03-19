@@ -1,0 +1,704 @@
+{
+  "metadata": {
+    "source": "Anthropic Claude API Documentation (platform.claude.com)",
+    "fetched_date": "2026-03-19",
+    "purpose": "Complete API feature reference for comparison with AWS Bedrock API"
+  },
+
+  "features": {
+
+    "1_messages_api": {
+      "endpoint": "POST /v1/messages",
+      "base_url": "https://api.anthropic.com",
+      "headers": {
+        "x-api-key": "Required - API key",
+        "anthropic-version": "Required - e.g. 2023-06-01",
+        "content-type": "application/json"
+      },
+      "required_parameters": {
+        "model": {
+          "type": "string",
+          "description": "Model identifier",
+          "allowed_values": [
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5",
+            "claude-haiku-4-5-20251001",
+            "claude-opus-4-5",
+            "claude-opus-4-5-20251101",
+            "claude-sonnet-4-5",
+            "claude-sonnet-4-5-20250929",
+            "claude-opus-4-1",
+            "claude-opus-4-1-20250805",
+            "claude-opus-4-0",
+            "claude-opus-4-20250514",
+            "claude-sonnet-4-0",
+            "claude-sonnet-4-20250514",
+            "claude-3-haiku-20240307"
+          ]
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Maximum number of tokens to generate before stopping. Different models have different maximum values."
+        },
+        "messages": {
+          "type": "array of MessageParam",
+          "description": "Input messages. Each has role (user|assistant) and content (string or content blocks array)",
+          "max_messages": 100000
+        }
+      },
+      "optional_parameters": {
+        "system": {
+          "type": "string or array of TextBlockParam",
+          "default": null,
+          "description": "System prompt. No system role in messages; use this parameter instead."
+        },
+        "temperature": {
+          "type": "float",
+          "default": 1.0,
+          "range": "0.0 to 1.0",
+          "description": "Randomness. 0.0 for analytical, 1.0 for creative. Not fully deterministic even at 0.0."
+        },
+        "top_p": {
+          "type": "float",
+          "range": "0.0 to 1.0",
+          "description": "Nucleus sampling. Use either temperature or top_p, not both."
+        },
+        "top_k": {
+          "type": "integer",
+          "description": "Only sample from top K options for each token."
+        },
+        "stop_sequences": {
+          "type": "array of string",
+          "description": "Custom text sequences that cause stop. stop_reason becomes stop_sequence."
+        },
+        "stream": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable SSE streaming."
+        },
+        "tools": {
+          "type": "array of ToolUnion",
+          "description": "Tool definitions the model may use."
+        },
+        "tool_choice": {
+          "type": "ToolChoice object",
+          "default": {"type": "auto"},
+          "options": [
+            {"type": "auto", "disable_parallel_tool_use": false},
+            {"type": "any", "disable_parallel_tool_use": false},
+            {"type": "tool", "name": "<tool_name>"},
+            {"type": "none"}
+          ]
+        },
+        "thinking": {
+          "type": "ThinkingConfigParam",
+          "description": "Extended thinking configuration",
+          "options": [
+            {"type": "enabled", "budget_tokens": "integer >= 1024", "display": "summarized|omitted"},
+            {"type": "disabled"},
+            {"type": "adaptive", "display": "summarized|omitted"}
+          ]
+        },
+        "cache_control": {
+          "type": "CacheControlEphemeral",
+          "description": "Top-level cache control. Auto-applies to last cacheable block.",
+          "structure": {"type": "ephemeral", "ttl": "5m|1h"}
+        },
+        "metadata": {
+          "type": "object",
+          "fields": {
+            "user_id": "string - external user identifier (uuid/hash/opaque)"
+          }
+        },
+        "output_config": {
+          "type": "OutputConfig",
+          "fields": {
+            "format": {"type": "json_schema", "schema": "JSON schema object"},
+            "effort": "low|medium|high|max"
+          }
+        },
+        "service_tier": {
+          "type": "string",
+          "default": "auto",
+          "options": ["auto", "standard_only"]
+        },
+        "container": {
+          "type": "string",
+          "description": "Container identifier for reuse across requests"
+        },
+        "inference_geo": {
+          "type": "string",
+          "description": "Geographic region for inference processing"
+        }
+      },
+      "response_format": {
+        "id": "string - message ID",
+        "type": "message",
+        "role": "assistant",
+        "content": "array of content blocks (text, tool_use, thinking)",
+        "model": "string",
+        "stop_reason": "end_turn|max_tokens|stop_sequence|tool_use",
+        "stop_sequence": "string or null",
+        "usage": {
+          "input_tokens": "integer",
+          "output_tokens": "integer",
+          "cache_creation_input_tokens": "integer (if caching)",
+          "cache_read_input_tokens": "integer (if caching)"
+        }
+      },
+      "request_example": {
+        "model": "claude-opus-4-6",
+        "max_tokens": 1024,
+        "system": "You are a helpful assistant.",
+        "messages": [{"role": "user", "content": "Hello"}],
+        "temperature": 0.7
+      },
+      "python_sdk_example": "client = anthropic.Anthropic()\nmessage = client.messages.create(\n    model='claude-opus-4-6',\n    max_tokens=1024,\n    messages=[{'role': 'user', 'content': 'Hello'}]\n)"
+    },
+
+    "2_tool_use": {
+      "endpoint": "POST /v1/messages (with tools parameter)",
+      "tool_definition_schema": {
+        "name": {"type": "string", "required": true, "description": "Tool name"},
+        "description": {"type": "string", "required": true, "description": "Detailed description of what the tool does"},
+        "input_schema": {
+          "type": "JSON Schema object",
+          "required": true,
+          "description": "JSON Schema defining the tool's input parameters"
+        },
+        "strict": {
+          "type": "boolean",
+          "required": false,
+          "description": "Enable strict schema validation (Structured Outputs)"
+        }
+      },
+      "built_in_tool_types": [
+        "Tool (custom tool with JSON schema)",
+        "ToolBash20250124 (bash command execution, name: bash)",
+        "CodeExecutionTool20250522 / 20250825 / 20260120 (Python code execution)",
+        "MemoryTool20250818 (memory, name: memory)",
+        "ToolTextEditor20250124 / 20250429 / 20250728 (text editor)",
+        "WebSearchTool20250305 / 20260209 (web search)",
+        "WebFetchTool20250910 / 20260209 / 20260309 (web fetch)",
+        "ToolSearchToolBm25_20251119 (BM25 tool search)",
+        "ToolSearchToolRegex20251119 (regex tool search)"
+      ],
+      "tool_choice_options": {
+        "auto": "Model decides whether to use tools (default)",
+        "any": "Model must use one of the available tools",
+        "tool": "Model must use the specific named tool",
+        "none": "Model cannot use any tools",
+        "disable_parallel_tool_use": "boolean - if true, outputs at most one tool_use block"
+      },
+      "response_when_tool_called": {
+        "stop_reason": "tool_use",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_xxx",
+            "name": "tool_name",
+            "input": {"param": "value"}
+          }
+        ]
+      },
+      "tool_result_format": {
+        "type": "tool_result",
+        "tool_use_id": "toolu_xxx (must match)",
+        "content": "string or array of content blocks",
+        "is_error": "boolean (optional, default false)"
+      },
+      "notes": [
+        "Tool names must match regex: ^[a-zA-Z0-9_-]{1,64}$",
+        "Tool descriptions should be very detailed for best results",
+        "With extended thinking, tool_choice only supports auto or none",
+        "Parallel tool use enabled by default unless disable_parallel_tool_use is true"
+      ],
+      "python_sdk_example": "response = client.messages.create(\n    model='claude-opus-4-6',\n    max_tokens=1024,\n    tools=[{\n        'name': 'get_weather',\n        'description': 'Get current weather',\n        'input_schema': {\n            'type': 'object',\n            'properties': {'location': {'type': 'string'}},\n            'required': ['location']\n        }\n    }],\n    messages=[{'role': 'user', 'content': 'Weather in SF?'}]\n)"
+    },
+
+    "3_vision": {
+      "endpoint": "POST /v1/messages (with image content blocks)",
+      "supported_formats": ["image/jpeg", "image/png", "image/gif", "image/webp"],
+      "image_source_types": {
+        "base64": {
+          "structure": {
+            "type": "image",
+            "source": {
+              "type": "base64",
+              "media_type": "image/jpeg",
+              "data": "<base64_string>"
+            }
+          }
+        },
+        "url": {
+          "structure": {
+            "type": "image",
+            "source": {
+              "type": "url",
+              "url": "https://example.com/image.jpg"
+            }
+          }
+        },
+        "file": {
+          "structure": {
+            "type": "image",
+            "source": {
+              "type": "file",
+              "file_id": "file_abc123"
+            }
+          },
+          "note": "Requires Files API beta: files-api-2025-04-14"
+        }
+      },
+      "limits": {
+        "max_image_size_api": "5 MB per image",
+        "max_image_size_claude_ai": "10 MB per image",
+        "max_images_per_request": "600 (100 for 200k-token context window models)",
+        "max_images_claude_ai": "20 per turn",
+        "max_pixel_dimension": "8000x8000 px (2000x2000 if >20 images)",
+        "optimal_long_edge": "1568 pixels",
+        "optimal_megapixels": "1.15 megapixels"
+      },
+      "token_calculation": "tokens = (width_px * height_px) / 750",
+      "best_practices": [
+        "Place images before text in prompts",
+        "Use supported formats: JPEG, PNG, GIF, WebP",
+        "Ensure images are clear and legible",
+        "Resize images to no more than 1568px on any edge for optimal latency",
+        "Images under 200px on any edge may degrade quality"
+      ],
+      "limitations": [
+        "Cannot identify/name people in images",
+        "May hallucinate on low-quality/rotated/small images",
+        "Limited spatial reasoning (clock faces, chess positions)",
+        "Approximate object counting only",
+        "Cannot detect AI-generated images",
+        "Cannot generate or edit images",
+        "Not designed for complex diagnostic medical scans"
+      ],
+      "python_sdk_example": "message = client.messages.create(\n    model='claude-opus-4-6',\n    max_tokens=1024,\n    messages=[{\n        'role': 'user',\n        'content': [\n            {'type': 'image', 'source': {'type': 'url', 'url': 'https://example.com/img.jpg'}},\n            {'type': 'text', 'text': 'Describe this image.'}\n        ]\n    }]\n)"
+    },
+
+    "4_streaming": {
+      "endpoint": "POST /v1/messages (with stream: true)",
+      "parameter": {
+        "name": "stream",
+        "type": "boolean",
+        "default": false
+      },
+      "protocol": "Server-Sent Events (SSE)",
+      "event_types": {
+        "message_start": {
+          "description": "First event, contains message object with empty content",
+          "structure": {"type": "message_start", "message": {"id": "msg_xxx", "type": "message", "role": "assistant", "content": [], "model": "...", "usage": {"input_tokens": "N", "output_tokens": 0}}}
+        },
+        "content_block_start": {
+          "description": "Start of a content block",
+          "structure": {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}
+        },
+        "content_block_delta": {
+          "description": "Incremental content update",
+          "delta_types": {
+            "text_delta": {"type": "text_delta", "text": "..."},
+            "input_json_delta": {"type": "input_json_delta", "partial_json": "..."},
+            "thinking_delta": {"type": "thinking_delta", "thinking": "..."},
+            "signature_delta": {"type": "signature_delta", "signature": "..."},
+            "citations_delta": {"type": "citations_delta", "citation": {}}
+          }
+        },
+        "content_block_stop": {
+          "description": "End of a content block",
+          "structure": {"type": "content_block_stop", "index": 0}
+        },
+        "message_delta": {
+          "description": "Message-level changes (stop_reason, usage)",
+          "structure": {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": "N"}}
+        },
+        "message_stop": {
+          "description": "Final event",
+          "structure": {"type": "message_stop"}
+        },
+        "ping": {
+          "description": "Keepalive ping",
+          "structure": {"type": "ping"}
+        },
+        "error": {
+          "description": "Error during streaming",
+          "structure": {"type": "error", "error": {"type": "...", "message": "..."}}
+        }
+      },
+      "event_sequence": "message_start -> [content_block_start -> content_block_delta* -> content_block_stop]+ -> message_delta -> message_stop",
+      "python_sdk_example": "with client.messages.stream(\n    max_tokens=1024,\n    messages=[{'role': 'user', 'content': 'Hello'}],\n    model='claude-opus-4-6',\n) as stream:\n    for text in stream.text_stream:\n        print(text, end='', flush=True)",
+      "python_sdk_get_final_message": "with client.messages.stream(...) as stream:\n    message = stream.get_final_message()"
+    },
+
+    "5_extended_thinking": {
+      "endpoint": "POST /v1/messages (with thinking parameter)",
+      "parameter": {
+        "name": "thinking",
+        "type": "ThinkingConfigParam",
+        "options": {
+          "enabled": {
+            "type": "enabled",
+            "budget_tokens": "integer, minimum 1024, must be < max_tokens (unless interleaved)",
+            "display": "summarized (default) | omitted"
+          },
+          "adaptive": {
+            "type": "adaptive",
+            "display": "summarized | omitted",
+            "note": "Model decides when and how much to think. Recommended for Opus 4.6."
+          },
+          "disabled": {
+            "type": "disabled"
+          }
+        }
+      },
+      "supported_models": {
+        "claude-opus-4-6": "Adaptive thinking only (manual mode deprecated)",
+        "claude-sonnet-4-6": "Both manual and adaptive, supports interleaved mode",
+        "claude-opus-4-5": "Manual extended thinking",
+        "claude-opus-4-1": "Manual extended thinking",
+        "claude-opus-4-0": "Manual extended thinking",
+        "claude-sonnet-4-5": "Manual extended thinking",
+        "claude-sonnet-4-0": "Manual extended thinking",
+        "claude-haiku-4-5": "Manual extended thinking"
+      },
+      "display_options": {
+        "summarized": "Default. Returns key thinking points. Claude 4+ returns summarized (not full) thinking.",
+        "omitted": "Empty thinking field, signature only. Faster time-to-first-text-token. Same cost."
+      },
+      "response_format": {
+        "content": [
+          {"type": "thinking", "thinking": "reasoning text...", "signature": "encrypted_signature_string"},
+          {"type": "text", "text": "final response"}
+        ]
+      },
+      "streaming_events": {
+        "thinking_delta": {"type": "thinking_delta", "thinking": "..."},
+        "signature_delta": {"type": "signature_delta", "signature": "..."}
+      },
+      "output_token_limits": {
+        "claude-opus-4-6": "128k output tokens",
+        "earlier_models": "64k output tokens"
+      },
+      "tool_use_constraints": [
+        "tool_choice only supports auto (default) or none with thinking enabled",
+        "any or specific tool forcing causes errors",
+        "Must preserve thinking blocks in multi-turn tool use",
+        "Cannot toggle thinking mid-turn during tool loops"
+      ],
+      "interleaved_thinking": {
+        "description": "Enables thinking between tool calls",
+        "beta_header": "interleaved-thinking-2025-05-14",
+        "opus_4_6": "Automatic with adaptive thinking",
+        "sonnet_4_6": "Beta header required OR adaptive thinking",
+        "other_models": "Beta header required"
+      },
+      "billing": "Billed for FULL thinking tokens generated, not the summarized output",
+      "python_sdk_example": "response = client.messages.create(\n    model='claude-sonnet-4-6',\n    max_tokens=16000,\n    thinking={'type': 'enabled', 'budget_tokens': 10000},\n    messages=[{'role': 'user', 'content': 'Complex question here'}]\n)\nfor block in response.content:\n    if block.type == 'thinking':\n        print(f'Thinking: {block.thinking}')\n    elif block.type == 'text':\n        print(f'Response: {block.text}')"
+    },
+
+    "6_prompt_caching": {
+      "endpoint": "POST /v1/messages (with cache_control on blocks or top-level)",
+      "cache_control_structure": {
+        "type": "ephemeral",
+        "ttl": "5m (default, free) | 1h (costs 2x base input price)"
+      },
+      "implementation_methods": {
+        "automatic": {
+          "description": "Top-level cache_control auto-applies to last cacheable block",
+          "example_param": "cache_control={'type': 'ephemeral'}"
+        },
+        "explicit_breakpoints": {
+          "description": "Place cache_control on individual content blocks",
+          "max_breakpoints": 4,
+          "lookback_window": "20 blocks"
+        }
+      },
+      "cacheable_content": [
+        "Tool definitions (tools array)",
+        "System messages (system array)",
+        "Text messages (messages.content)",
+        "Images and documents (user turns)",
+        "Tool use blocks and tool results",
+        "Thinking blocks (as part of previous assistant turns)"
+      ],
+      "non_cacheable": [
+        "Thinking blocks directly with cache_control",
+        "Sub-content blocks (like citations)",
+        "Empty text blocks"
+      ],
+      "cache_hierarchy": "tools -> system -> messages (changes invalidate that level and all subsequent)",
+      "minimum_token_requirements": {
+        "claude-opus-4-6_4-5": 4096,
+        "claude-sonnet-4-6": 2048,
+        "claude-sonnet-4-5_4_4-1": 1024,
+        "claude-haiku-4-5": 4096,
+        "claude-haiku-3-5_3": 2048
+      },
+      "pricing_multipliers": {
+        "5m_cache_write": "1.25x base input price",
+        "1h_cache_write": "2x base input price",
+        "cache_read_hit": "0.1x base input price"
+      },
+      "usage_tracking_fields": {
+        "cache_creation_input_tokens": "New tokens written to cache",
+        "cache_read_input_tokens": "Tokens read from cache",
+        "input_tokens": "Non-cached tokens"
+      },
+      "notes": [
+        "Exact matching required - 100% identical content",
+        "Organization-level cache isolation (moving to workspace-level Feb 5, 2026)",
+        "Concurrent requests: cache only available after first response begins",
+        "Supported on Claude API and Azure AI Foundry (preview); Bedrock/Vertex coming later"
+      ],
+      "python_sdk_example": "response = client.messages.create(\n    model='claude-opus-4-6',\n    max_tokens=1024,\n    cache_control={'type': 'ephemeral'},\n    system='Long system prompt...',\n    messages=[{'role': 'user', 'content': 'Question'}]\n)"
+    },
+
+    "7_batch_processing": {
+      "endpoints": {
+        "create_batch": "POST /v1/messages/batches",
+        "get_batch": "GET /v1/messages/batches/{batch_id}",
+        "list_batches": "GET /v1/messages/batches",
+        "cancel_batch": "POST /v1/messages/batches/{batch_id}/cancel",
+        "get_results": "GET /v1/messages/batches/{batch_id}/results"
+      },
+      "request_format": {
+        "requests": [
+          {
+            "custom_id": "string - unique identifier",
+            "params": {
+              "model": "string",
+              "max_tokens": "integer",
+              "messages": "array (same as Messages API)"
+            }
+          }
+        ]
+      },
+      "batch_limits": {
+        "max_requests_per_batch": 100000,
+        "max_batch_size": "256 MB",
+        "processing_time": "Most complete within 1 hour",
+        "expiration": "24 hours if not completed",
+        "results_available": "29 days after creation"
+      },
+      "pricing": "50% of standard API prices for all models",
+      "batch_pricing_table": {
+        "claude-opus-4-6": {"input": "$2.50/MTok", "output": "$12.50/MTok"},
+        "claude-opus-4-5": {"input": "$2.50/MTok", "output": "$12.50/MTok"},
+        "claude-opus-4-1": {"input": "$7.50/MTok", "output": "$37.50/MTok"},
+        "claude-sonnet-4-6": {"input": "$1.50/MTok", "output": "$7.50/MTok"},
+        "claude-sonnet-4-5": {"input": "$1.50/MTok", "output": "$7.50/MTok"},
+        "claude-haiku-4-5": {"input": "$0.50/MTok", "output": "$2.50/MTok"},
+        "claude-haiku-3-5": {"input": "$0.40/MTok", "output": "$2/MTok"}
+      },
+      "supported_content": [
+        "Vision", "Tool use", "System messages",
+        "Multi-turn conversations", "Any beta features"
+      ],
+      "batch_statuses": ["in_progress", "canceling", "ended"],
+      "result_types": ["succeeded", "errored", "canceled", "expired"],
+      "notes": [
+        "NOT eligible for Zero Data Retention (ZDR)",
+        "Scoped to Workspace",
+        "Each request processed independently - can mix types",
+        "Consider 1-hour cache TTL for better cache hits with batches"
+      ],
+      "python_sdk_example": "batch = client.messages.batches.create(\n    requests=[{\n        'custom_id': 'req-1',\n        'params': {\n            'model': 'claude-opus-4-6',\n            'max_tokens': 1024,\n            'messages': [{'role': 'user', 'content': 'Hello'}]\n        }\n    }]\n)"
+    },
+
+    "8_token_counting": {
+      "endpoint": "POST /v1/messages/count_tokens",
+      "http_method": "POST",
+      "parameters": {
+        "model": {"type": "string", "required": true},
+        "messages": {"type": "array", "required": true},
+        "system": {"type": "string or array", "required": false},
+        "tools": {"type": "array", "required": false},
+        "thinking": {"type": "ThinkingConfigParam", "required": false}
+      },
+      "response_format": {
+        "input_tokens": "integer"
+      },
+      "pricing": "FREE - no token cost, only RPM limits",
+      "rate_limits_rpm": {
+        "tier_1": 100,
+        "tier_2": 2000,
+        "tier_3": 4000,
+        "tier_4": 8000
+      },
+      "supports": [
+        "Text messages", "System prompts", "Tools",
+        "Images", "PDFs", "Extended thinking"
+      ],
+      "notes": [
+        "Token count is an ESTIMATE - actual may differ slightly",
+        "May include system-added tokens (not billed)",
+        "Separate rate limits from message creation",
+        "Does NOT use prompt caching logic",
+        "Thinking blocks from previous assistant turns are ignored",
+        "Eligible for Zero Data Retention (ZDR)"
+      ],
+      "python_sdk_example": "response = client.messages.count_tokens(\n    model='claude-opus-4-6',\n    system='You are a scientist',\n    messages=[{'role': 'user', 'content': 'Hello, Claude'}]\n)\nprint(response.input_tokens)  # e.g. 14"
+    },
+
+    "9_pdf_support": {
+      "endpoint": "POST /v1/messages (with document content blocks)",
+      "document_block_structure": {
+        "type": "document",
+        "source": {
+          "type": "base64|url|file",
+          "media_type": "application/pdf",
+          "data": "<base64_string> (for base64)",
+          "url": "<pdf_url> (for url)",
+          "file_id": "<file_id> (for file)"
+        },
+        "title": "optional string",
+        "context": "optional string - additional context not cited",
+        "citations": {"enabled": "boolean (optional)"},
+        "cache_control": {"type": "ephemeral"}
+      },
+      "limits": {
+        "max_request_size": "32 MB (varies by platform)",
+        "max_pages_per_request": "600 (100 for 200k-token context window models)",
+        "format": "Standard PDF only (no passwords/encryption)"
+      },
+      "how_it_works": [
+        "Each page converted to an image",
+        "Text extracted and provided alongside page image",
+        "Claude analyzes both text and images"
+      ],
+      "token_cost_per_page": "1500-3000 tokens (text) + image tokens per page",
+      "supported_platforms": "Direct API, Google Vertex AI, Amazon Bedrock (with caveats)",
+      "bedrock_specific_notes": {
+        "converse_api_without_citations": "Basic text extraction only - cannot see images/charts",
+        "converse_api_with_citations": "Full visual PDF understanding enabled",
+        "invoke_model_api": "Full control without forced citations"
+      },
+      "best_practices": [
+        "Place PDFs before text in requests",
+        "Use standard fonts",
+        "Ensure text is clear and legible",
+        "Rotate pages to proper orientation",
+        "Split large PDFs into chunks",
+        "Enable prompt caching for repeated analysis"
+      ],
+      "python_sdk_example": "import base64\npdf_data = base64.standard_b64encode(open('doc.pdf','rb').read()).decode('utf-8')\nmessage = client.messages.create(\n    model='claude-opus-4-6',\n    max_tokens=1024,\n    messages=[{\n        'role': 'user',\n        'content': [\n            {'type': 'document', 'source': {'type': 'base64', 'media_type': 'application/pdf', 'data': pdf_data}},\n            {'type': 'text', 'text': 'Summarize this document.'}\n        ]\n    }]\n)"
+    },
+
+    "10_citations": {
+      "endpoint": "POST /v1/messages (with citations enabled on document blocks)",
+      "how_to_enable": "Set citations.enabled=true on each document block",
+      "supported_models": "All active models except Haiku 3",
+      "document_types": {
+        "plain_text": {
+          "source_type": "text",
+          "media_type": "text/plain",
+          "chunking": "Automatic sentence chunking",
+          "citation_format": "char_location (0-indexed character indices)"
+        },
+        "pdf": {
+          "source_type": "base64|url|file",
+          "media_type": "application/pdf",
+          "chunking": "Automatic sentence chunking on extracted text",
+          "citation_format": "page_location (1-indexed page numbers)"
+        },
+        "custom_content": {
+          "source_type": "content",
+          "structure": {"content": [{"type": "text", "text": "chunk1"}, {"type": "text", "text": "chunk2"}]},
+          "chunking": "No additional chunking - your blocks used as-is",
+          "citation_format": "content_block_location (0-indexed block indices)"
+        }
+      },
+      "citation_types_in_response": {
+        "char_location": {
+          "type": "char_location",
+          "cited_text": "exact text (NOT counted as output tokens)",
+          "document_index": "0-indexed",
+          "document_title": "string",
+          "start_char_index": "0-indexed",
+          "end_char_index": "exclusive"
+        },
+        "page_location": {
+          "type": "page_location",
+          "cited_text": "exact text",
+          "document_index": "0-indexed",
+          "document_title": "string",
+          "start_page_number": "1-indexed",
+          "end_page_number": "exclusive"
+        },
+        "content_block_location": {
+          "type": "content_block_location",
+          "cited_text": "exact text",
+          "document_index": "0-indexed",
+          "document_title": "string",
+          "start_block_index": "0-indexed",
+          "end_block_index": "exclusive"
+        }
+      },
+      "optional_document_fields": {
+        "title": "Passed to model but NOT citable",
+        "context": "Passed to model but NOT citable"
+      },
+      "token_costs": {
+        "input": "Slight increase due to system prompt additions and chunking",
+        "output": "cited_text does NOT count towards output tokens",
+        "multi_turn": "cited_text also NOT counted as input tokens when passed back"
+      },
+      "incompatible_with": "Structured Outputs (output_config.format) - returns 400 error",
+      "streaming": "citations_delta event type contains citation objects",
+      "compatible_with": ["Prompt caching", "Token counting", "Batch processing"],
+      "python_sdk_example": "response = client.messages.create(\n    model='claude-opus-4-6',\n    max_tokens=1024,\n    messages=[{\n        'role': 'user',\n        'content': [\n            {'type': 'document', 'source': {'type': 'text', 'media_type': 'text/plain', 'data': 'The grass is green.'},\n             'title': 'My Doc', 'citations': {'enabled': True}},\n            {'type': 'text', 'text': 'What color is the grass?'}\n        ]\n    }]\n)"
+    },
+
+    "11_streaming_events": {
+      "endpoint": "POST /v1/messages (with stream: true)",
+      "protocol": "Server-Sent Events (SSE)",
+      "event_flow": [
+        "1. message_start - Contains Message object with empty content",
+        "2. content_block_start - For each content block (text, tool_use, thinking)",
+        "3. content_block_delta - Repeated for incremental updates",
+        "4. content_block_stop - End of content block",
+        "5. message_delta - Final stop_reason and usage",
+        "6. message_stop - Stream complete"
+      ],
+      "delta_types": {
+        "text_delta": "Incremental text content",
+        "input_json_delta": "Incremental tool input JSON",
+        "thinking_delta": "Incremental thinking content",
+        "signature_delta": "Thinking signature",
+        "citations_delta": "Citation reference"
+      },
+      "special_events": {
+        "ping": "Keepalive event",
+        "error": "Error during streaming, may be recoverable"
+      },
+      "notes": [
+        "Each SSE includes event type and JSON data",
+        "Ping events sent periodically as keepalive",
+        "SDKs provide high-level streaming helpers (text_stream, etc.)",
+        "For large max_tokens, SDKs may require streaming to avoid HTTP timeouts"
+      ]
+    }
+  },
+
+  "content_block_types_summary": {
+    "TextBlockParam": {"type": "text", "text": "string", "cache_control": "optional", "citations": "optional array"},
+    "ImageBlockParam": {"type": "image", "source": "base64|url|file source"},
+    "DocumentBlockParam": {"type": "document", "source": "base64|url|file|text|content source", "title": "optional", "context": "optional", "citations": "optional"},
+    "ToolUseBlockParam": {"type": "tool_use", "id": "string", "name": "string", "input": "object"},
+    "ToolResultBlockParam": {"type": "tool_result", "tool_use_id": "string", "content": "string or array", "is_error": "boolean"},
+    "ThinkingBlockParam": {"type": "thinking", "thinking": "string", "signature": "string"}
+  },
+
+  "global_notes": {
+    "api_version_header": "anthropic-version: 2023-06-01",
+    "authentication": "x-api-key header with API key",
+    "request_size_limit": "32 MB for standard endpoints",
+    "max_messages_per_request": 100000,
+    "base_url": "https://api.anthropic.com",
+    "python_sdk_package": "anthropic",
+    "sdk_initialization": "client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY env var"
+  }
+}

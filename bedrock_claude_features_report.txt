@@ -1,0 +1,1058 @@
+================================================================================
+         AWS Bedrock Claude API 全功能特性研究报告
+         生成日期: 2026-03-19
+================================================================================
+
+目录:
+  1. API 端点与调用方式
+  2. Claude Model IDs 完整列表
+  3. InvokeModel API (Claude Messages格式) 参数详解
+  4. Converse API 参数详解
+  5. Tool Use (工具使用)
+  6. Prompt Caching (提示缓存)
+  7. Extended Thinking (扩展思考)
+  8. Batch Inference (批量推理)
+  9. Guardrails (安全护栏)
+  10. 与 Anthropic 直接 API 的差异对比
+  11. Bedrock 特有功能
+
+================================================================================
+1. API 端点与调用方式
+================================================================================
+
+Bedrock 提供三种主要 API 调用方式:
+
+┌─────────────────────┬──────────────────────────────────────────────────────┐
+│ API                 │ 说明                                                 │
+├─────────────────────┼──────────────────────────────────────────────────────┤
+│ InvokeModel         │ 直接调用，使用Anthropic原生请求格式                      │
+│                     │ 流式: InvokeModelWithResponseStream                   │
+│                     │ IAM: bedrock:InvokeModel / bedrock:InvokeModelWith   │
+│                     │       ResponseStream                                  │
+├─────────────────────┼──────────────────────────────────────────────────────┤
+│ Converse            │ AWS 统一对话 API (推荐)                                │
+│                     │ 流式: ConverseStream                                  │
+│                     │ IAM: bedrock:InvokeModel                              │
+├─────────────────────┼──────────────────────────────────────────────────────┤
+│ Responses           │ OpenAI 兼容格式，支持服务端工具调用                      │
+│                     │ 支持 Lambda/AgentCore Gateway 服务端执行                │
+└─────────────────────┴──────────────────────────────────────────────────────┘
+
+SDK 安装:
+  - Anthropic SDK (推荐): pip install -U "anthropic[bedrock]"
+  - Boto3: pip install boto3>=1.28.59
+  - TypeScript: npm install @anthropic-ai/bedrock-sdk
+
+================================================================================
+2. Claude Model IDs 完整列表
+================================================================================
+
+┌──────────────────────┬────────────────────────────────────────────────────┬────────┐
+│ 模型                 │ Base Model ID                                      │ Global │
+├──────────────────────┼────────────────────────────────────────────────────┼────────┤
+│ Claude Opus 4.6      │ anthropic.claude-opus-4-6-v1                       │ Yes    │
+│ Claude Sonnet 4.6    │ anthropic.claude-sonnet-4-6                        │ Yes    │
+│ Claude Sonnet 4.5    │ anthropic.claude-sonnet-4-5-20250929-v1:0          │ Yes    │
+│ Claude Opus 4.5      │ anthropic.claude-opus-4-5-20251101-v1:0            │ Yes    │
+│ Claude Opus 4.1      │ anthropic.claude-opus-4-1-20250805-v1:0            │ No     │
+│ Claude Sonnet 4      │ anthropic.claude-sonnet-4-20250514-v1:0            │ Yes    │
+│ Claude Haiku 4.5     │ anthropic.claude-haiku-4-5-20251001-v1:0           │ Yes    │
+│ Claude 3.5 Haiku ⚠️  │ anthropic.claude-3-5-haiku-20241022-v1:0           │ No     │
+│ Claude 3 Haiku ⚠️    │ anthropic.claude-3-haiku-20240307-v1:0             │ No     │
+│ Claude 3.7 Sonnet ⚠️ │ anthropic.claude-3-7-sonnet-20250219-v1:0          │ No     │
+│ Claude 3.5 Sonnet v2 │ anthropic.claude-3-5-sonnet-20241022-v2:0          │ No     │
+└──────────────────────┴────────────────────────────────────────────────────┴────────┘
+
+⚠️ = 已退役或即将退役
+
+Global vs Regional 端点:
+  - Global: "global.anthropic.claude-opus-4-6-v1" (动态路由，最大可用性，无溢价)
+  - Regional: "us.anthropic.claude-opus-4-6-v1" (指定区域路由，+10%价格)
+  - 区域前缀: us, eu, jp, apac
+  - 注意: 仅 Claude Sonnet 4.5 及之后模型支持 global/regional 区分
+
+Context Window:
+  - Claude Opus 4.6, Sonnet 4.6, Sonnet 4.5, Sonnet 4: 1M token
+  - Claude Sonnet 4.5/4 的 1M 需要 beta header: "context-1m-2025-08-07"
+  - Bedrock 请求 payload 限制: 20 MB
+
+================================================================================
+3. InvokeModel API (Claude Messages 格式) 参数详解
+================================================================================
+
+--- 请求参数 ---
+
+┌─────────────────────┬──────────┬──────────┬────────────────┬───────────────────────────────┐
+│ 参数名              │ 类型     │ 必填     │ 默认值          │ 说明                          │
+├─────────────────────┼──────────┼──────────┼────────────────┼───────────────────────────────┤
+│ anthropic_version   │ string   │ Yes      │ -              │ "bedrock-2023-05-31"          │
+│ max_tokens          │ integer  │ Yes      │ -              │ 最大生成token数                │
+│ messages            │ array    │ Yes      │ -              │ 对话消息数组                   │
+│ system              │ string   │ No       │ -              │ 系统提示(Claude 2.1+)         │
+│ temperature         │ float    │ No       │ 1              │ 随机性(0-1)                   │
+│ top_p               │ float    │ No       │ 0.999          │ 核采样(0-1)                   │
+│ top_k               │ integer  │ No       │ disabled       │ Top-K采样(0-500)              │
+│ stop_sequences      │ string[] │ No       │ -              │ 停止序列(最多8191个)          │
+│ tools               │ array    │ No       │ -              │ 工具定义(Claude 3+)           │
+│ tool_choice         │ object   │ No       │ -              │ 工具选择策略(Claude 3+)       │
+│ anthropic_beta      │ string[] │ No       │ -              │ Beta功能头                     │
+│ metadata            │ object   │ No       │ -              │ 请求元数据                     │
+└─────────────────────┴──────────┴──────────┴────────────────┴───────────────────────────────┘
+
+注意: Claude Sonnet 4.5 / Haiku 4.5 只能设置 temperature 或 top_p 之一，不能同时设置。
+
+--- messages 结构 ---
+
+{
+  "role": "user|assistant",     // 角色: user 或 assistant
+  "content": [                  // 内容块数组(也可以是纯字符串)
+    {"type": "text", "text": "..."},
+    {
+      "type": "image",
+      "source": {
+        "type": "base64",
+        "media_type": "image/jpeg|png|webp|gif",
+        "data": "<base64>"      // 最大 3.75MB, 最大 8000x8000 像素
+      }
+    }
+  ]
+}
+
+--- tools 结构 ---
+
+自定义工具:
+{
+  "type": "custom",
+  "name": "tool_name",
+  "description": "...",          // 可选但强烈推荐
+  "input_schema": { ... }        // JSON Schema
+}
+
+Computer Use 工具:
+{
+  "type": "computer_20241022",
+  "name": "computer",
+  "display_height_px": 1024,     // 必填
+  "display_width_px": 1280,      // 必填
+  "display_number": 0            // 可选
+}
+
+Bash 工具:
+{"type": "bash_20241022", "name": "bash"}
+
+Text Editor 工具:
+{"type": "text_editor_20241022", "name": "str_replace_editor"}
+
+--- tool_choice 结构 ---
+
+{"type": "auto"}                          // 模型自动决定
+{"type": "any"}                           // 强制使用任意工具
+{"type": "tool", "name": "tool_name"}     // 强制使用指定工具
+
+--- Beta Headers (anthropic_beta) ---
+
+┌──────────────────────────────────┬──────────────────────────────────────────┐
+│ Beta Header                       │ 适用模型                                 │
+├──────────────────────────────────┼──────────────────────────────────────────┤
+│ computer-use-2025-01-24          │ Claude 3.7 Sonnet                        │
+│ token-efficient-tools-2025-02-19 │ Claude 3.7 Sonnet, Claude 4+             │
+│ Interleaved-thinking-2025-05-14  │ Claude 4+                                │
+│ output-128k-2025-02-19           │ Claude 3.7 Sonnet                        │
+│ dev-full-thinking-2025-05-14     │ Claude 4+ (开发者模式/raw thinking)       │
+│ context-1m-2025-08-07            │ Claude Sonnet 4                          │
+│ context-management-2025-06-27    │ Claude Sonnet 4.5, Haiku 4.5             │
+│ effort-2025-11-24                │ Claude Opus 4.5                          │
+│ tool-search-tool-2025-10-19      │ Claude Opus 4.5                          │
+│ tool-examples-2025-10-29         │ Claude Opus 4.5                          │
+└──────────────────────────────────┴──────────────────────────────────────────┘
+
+--- Effort 参数 (Opus 4.5 Beta) ---
+
+{
+  "anthropic_version": "bedrock-2023-05-31",
+  "anthropic_beta": ["effort-2025-11-24"],
+  "max_tokens": 4096,
+  "output_config": {
+    "effort": "high|medium|low"    // high=默认，花费更多token; low=保守
+  },
+  "messages": [...]
+}
+
+--- 响应参数 ---
+
+┌─────────────────┬──────────┬─────────────────────────────────────────────┐
+│ 字段            │ 类型     │ 说明                                         │
+├─────────────────┼──────────┼─────────────────────────────────────────────┤
+│ id              │ string   │ 响应唯一标识符                               │
+│ model           │ string   │ 生成响应的模型ID                             │
+│ type            │ string   │ 固定为 "message"                             │
+│ role            │ string   │ 固定为 "assistant"                           │
+│ content         │ array    │ 内容块: text / tool_use / image              │
+│ stop_reason     │ string   │ end_turn/max_tokens/stop_sequence/           │
+│                 │          │ refusal/tool_use/model_context_window_exceeded│
+│ stop_sequence   │ string   │ 匹配的停止序列(如适用)                       │
+│ usage           │ object   │ {input_tokens, output_tokens}                │
+└─────────────────┴──────────┴─────────────────────────────────────────────┘
+
+--- 完整请求示例 ---
+
+{
+  "anthropic_version": "bedrock-2023-05-31",
+  "max_tokens": 1024,
+  "system": "You are a helpful assistant.",
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "top_k": 250,
+  "stop_sequences": ["Human:"],
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "Hello, Claude"}
+      ]
+    }
+  ]
+}
+
+--- Python boto3 调用示例 ---
+
+import boto3
+import json
+import botocore.config
+
+# 注意: 建议增加 read_timeout 到 3600 秒
+config = botocore.config.Config(read_timeout=3600)
+client = boto3.client('bedrock-runtime', config=config, region_name='us-west-2')
+
+body = json.dumps({
+    "anthropic_version": "bedrock-2023-05-31",
+    "max_tokens": 1024,
+    "messages": [{"role": "user", "content": "Hello, world"}]
+})
+
+response = client.invoke_model(
+    body=body,
+    modelId="global.anthropic.claude-opus-4-6-v1"
+)
+
+response_body = json.loads(response['body'].read())
+print(response_body['content'][0]['text'])
+
+--- Anthropic SDK 调用示例 ---
+
+from anthropic import AnthropicBedrock
+
+client = AnthropicBedrock(aws_region="us-west-2")
+
+message = client.messages.create(
+    model="global.anthropic.claude-opus-4-6-v1",
+    max_tokens=256,
+    messages=[{"role": "user", "content": "Hello, world"}]
+)
+print(message.content)
+
+================================================================================
+4. Converse API 参数详解
+================================================================================
+
+--- 请求参数 ---
+
+┌──────────────────────────────────┬────────────┬──────┬────────────────────────────────┐
+│ 参数名                           │ 类型       │ 必填 │ 说明                            │
+├──────────────────────────────────┼────────────┼──────┼────────────────────────────────┤
+│ modelId                          │ string     │ Yes  │ 模型ID (header参数)             │
+│ messages                         │ Message[]  │ Yes  │ 对话消息数组                     │
+│ system                           │ SystemCB[] │ No   │ 系统提示内容块数组               │
+│ inferenceConfig                  │ object     │ No   │ 推理配置                        │
+│ additionalModelRequestFields     │ JSON       │ No   │ 模型特定参数(如top_k)           │
+│ toolConfig                       │ object     │ No   │ 工具配置                        │
+│ guardrailConfig                  │ object     │ No   │ Guardrail配置                   │
+│ promptVariables                  │ object     │ No   │ Prompt Management变量           │
+│ additionalModelResponseFieldPaths│ string[]   │ No   │ 额外响应字段的JSON指针           │
+│ serviceTier                      │ object     │ No   │ 服务层级                        │
+│ requestMetadata                  │ object     │ No   │ 请求元数据(用于日志过滤)        │
+└──────────────────────────────────┴────────────┴──────┴────────────────────────────────┘
+
+--- inferenceConfig 结构 ---
+
+{
+  "inferenceConfig": {
+    "maxTokens": 2048,            // 最大生成token数
+    "stopSequences": ["string"],  // 停止序列
+    "temperature": 0.5,           // 温度(0-1)
+    "topP": 0.9                   // 核采样(0-1)
+  }
+}
+
+注意: Claude 的 top_k 需要通过 additionalModelRequestFields 传递:
+{
+  "additionalModelRequestFields": {
+    "top_k": 200
+  }
+}
+
+--- serviceTier 结构 ---
+
+{
+  "serviceTier": {
+    "type": "reserved|priority|default|flex"
+  }
+}
+
+--- Message ContentBlock 类型 ---
+
+1. Text:       {"text": "..."}
+2. Image:      {"image": {"format": "png|jpeg|gif|webp", "source": {"bytes": "..."}}}
+               {"image": {"format": "png", "source": {"s3Location": {"uri": "s3://...", "bucketOwner": "..."}}}}
+3. Document:   {"document": {"format": "pdf|csv|doc|docx|xls|xlsx|html|txt|md|json",
+                "name": "DocName", "source": {"bytes": "..."}, "citations": {"enabled": true}}}
+4. Video:      {"video": {"format": "mp4|mov|mkv|flv|avi|webm", "source": {"bytes": "..."}}}
+5. CachePoint: {"cachePoint": {"type": "default", "ttl": "5m|1h"}}
+6. GuardContent: {"text": "...", "qualifiers": ["guard_content"]}
+7. ReasoningContent: {"reasoningContent": {"reasoningText": {"text": "...", "signature": "..."}}}
+8. ToolUse:    见 Tool Use 章节
+9. ToolResult: 见 Tool Use 章节
+
+--- 响应结构 ---
+
+{
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [{"text": "..."}]
+    }
+  },
+  "stopReason": "end_turn|max_tokens|stop_sequence|tool_use",
+  "usage": {
+    "inputTokens": 125,
+    "outputTokens": 60,
+    "totalTokens": 185,
+    "cacheReadInputTokensCount": 0,
+    "cacheWriteInputTokensCount": 0
+  },
+  "metrics": {
+    "latencyMs": 1175
+  },
+  "additionalModelResponseFields": {}
+}
+
+--- ConverseStream 事件顺序 ---
+
+1. messageStart      → {"role": "assistant"}
+2. contentBlockStart → (tool_use 时)
+3. contentBlockDelta → {"delta": {"text": "..."}} 或 {"delta": {"reasoningContent": ...}}
+4. contentBlockStop  → 内容块结束
+5. messageStop       → {"stopReason": "..."}
+6. metadata          → {usage, metrics}
+
+--- Python Converse 调用示例 ---
+
+import boto3
+
+client = boto3.client('bedrock-runtime', region_name='us-west-2')
+
+response = client.converse(
+    modelId='anthropic.claude-sonnet-4-5-20250929-v1:0',
+    messages=[
+        {
+            "role": "user",
+            "content": [{"text": "Create a list of 3 pop songs."}]
+        }
+    ],
+    system=[
+        {"text": "You are a music expert."}
+    ],
+    inferenceConfig={
+        "maxTokens": 1024,
+        "temperature": 0.7,
+        "topP": 0.9
+    }
+)
+
+print(response['output']['message']['content'][0]['text'])
+
+--- Converse API 支持的 Claude 功能矩阵 ---
+
+┌─────────────────────┬─────────┬────────┬───────┬──────────┬──────────────────┬───────────┐
+│ 模型                │ Vision  │ Doc    │ Tools │ Stream   │ Streaming Tools  │ Guardrails│
+│                     │         │ Chat   │       │          │                  │           │
+├─────────────────────┼─────────┼────────┼───────┼──────────┼──────────────────┼───────────┤
+│ Claude 2.x          │ ❌      │ ✅     │ ❌    │ ✅       │ ❌               │ ✅        │
+│ Claude 3 (all)      │ ✅      │ ✅     │ ✅    │ ✅       │ ✅               │ ✅        │
+│ Claude 3.5 Sonnet   │ ✅      │ ✅     │ ✅    │ ✅       │ ✅               │ ✅        │
+│ Claude 3.5 Haiku    │ ❌      │ ✅     │ ✅    │ ✅       │ ✅               │ ❌        │
+│ Claude 3.7 Sonnet   │ ✅      │ ✅     │ ✅    │ ✅       │ ✅               │ ✅        │
+│ Claude Sonnet 4     │ ✅      │ ✅     │ ✅    │ ✅       │ ✅               │ ❌        │
+│ Claude Opus 4       │ ✅      │ ✅     │ ✅    │ ✅       │ ✅               │ ❌        │
+│ Claude Sonnet 4.5   │ ✅      │ ✅     │ ✅    │ ✅       │ ✅               │ ❌        │
+│ Claude Haiku 4.5    │ ✅      │ ✅     │ ✅    │ ✅       │ ✅               │ ❌        │
+│ Claude Opus 4.5     │ ✅      │ ✅     │ ✅    │ ✅       │ ✅               │ ❌        │
+│ Claude Opus 4.1     │ ✅      │ ✅     │ ✅    │ ✅       │ ✅               │ ❌        │
+│ Claude Opus 4.6     │ ✅      │ ✅     │ ✅    │ ✅       │ ✅               │ ❌        │
+└─────────────────────┴─────────┴────────┴───────┴──────────┴──────────────────┴───────────┘
+
+注意: Claude 4+ 模型目前不支持 Guardrails。
+
+================================================================================
+5. Tool Use (工具使用)
+================================================================================
+
+--- Converse API Tool Use ---
+
+toolConfig 结构:
+{
+  "toolConfig": {
+    "tools": [
+      {
+        "toolSpec": {
+          "name": "top_song",
+          "description": "Get the most popular song on a radio station.",
+          "inputSchema": {
+            "json": {
+              "type": "object",
+              "properties": {
+                "sign": {
+                  "type": "string",
+                  "description": "The call sign for the radio station"
+                }
+              },
+              "required": ["sign"]
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+
+Tool Use 响应:
+- stopReason = "tool_use"
+- content 包含 toolUse 对象:
+  {
+    "toolUse": {
+      "toolUseId": "unique-id",
+      "name": "top_song",
+      "input": {"sign": "WZPZ"}
+    }
+  }
+
+Tool Result 返回:
+{
+  "role": "user",
+  "content": [{
+    "toolResult": {
+      "toolUseId": "unique-id",
+      "content": [{"json": {"song": "...", "artist": "..."}}],
+      "status": "success|error"   // error 时可选
+    }
+  }]
+}
+
+--- InvokeModel API Tool Use ---
+
+(使用 Anthropic 原生格式)
+{
+  "tools": [
+    {
+      "type": "custom",
+      "name": "tool_name",
+      "description": "...",
+      "input_schema": { ... }
+    }
+  ],
+  "tool_choice": {"type": "auto|any|tool", "name": "..."}
+}
+
+--- 服务端 Tool Calling (Responses API) ---
+
+支持通过 Lambda 或 AgentCore Gateway 服务端执行:
+
+{
+  "tools": [{
+    "type": "mcp",
+    "server_label": "xamzn_arn",
+    "connector_id": "arn:aws:lambda:us-west-2:123456789012:function:my-tool",
+    "require_approval": "never"
+  }]
+}
+
+Lambda 需要实现 MCP (Model Context Protocol):
+  - tools/list: 返回可用工具列表
+  - tools/call: 执行工具并返回结果
+
+--- AWS 内置工具 ---
+
+Notes Tool: 存储/检索键值对 (operation: "store"|"recall")
+Tasks Tool: LIFO任务栈 (operation: "push"|"pop")
+
+--- Python Converse Tool Use 完整示例 ---
+
+import boto3, json
+
+client = boto3.client('bedrock-runtime')
+
+tool_config = {
+    "tools": [{
+        "toolSpec": {
+            "name": "top_song",
+            "description": "Get the most popular song on a radio station.",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {
+                        "sign": {"type": "string", "description": "Radio station call sign"}
+                    },
+                    "required": ["sign"]
+                }
+            }
+        }
+    }]
+}
+
+messages = [{"role": "user", "content": [{"text": "What's popular on WZPZ?"}]}]
+
+response = client.converse(
+    modelId="anthropic.claude-sonnet-4-5-20250929-v1:0",
+    messages=messages,
+    toolConfig=tool_config
+)
+
+if response['stopReason'] == 'tool_use':
+    output_msg = response['output']['message']
+    messages.append(output_msg)
+    for block in output_msg['content']:
+        if 'toolUse' in block:
+            tool = block['toolUse']
+            # Execute tool logic here...
+            result = {"song": "Example Song", "artist": "Example Artist"}
+            messages.append({
+                "role": "user",
+                "content": [{
+                    "toolResult": {
+                        "toolUseId": tool['toolUseId'],
+                        "content": [{"json": result}]
+                    }
+                }]
+            })
+
+    final = client.converse(
+        modelId="anthropic.claude-sonnet-4-5-20250929-v1:0",
+        messages=messages,
+        toolConfig=tool_config
+    )
+    print(final['output']['message']['content'][0]['text'])
+
+================================================================================
+6. Prompt Caching (提示缓存)
+================================================================================
+
+--- 支持模型与要求 ---
+
+┌─────────────────────┬────────────────────────────────────────────┬────────┬──────┬─────────────────────┐
+│ 模型                │ Model ID                                    │ 最小   │ 最大 │ TTL                 │
+│                     │                                              │ Token  │ 检查 │                     │
+│                     │                                              │        │ 点   │                     │
+├─────────────────────┼────────────────────────────────────────────┼────────┼──────┼─────────────────────┤
+│ Claude Opus 4.5     │ anthropic.claude-opus-4-5-20251101-v1:0    │ 4,096  │ 4    │ 5m, 1h              │
+│ Claude Opus 4.1     │ anthropic.claude-opus-4-1-20250805-v1:0    │ 1,024  │ 4    │ 5m                  │
+│ Claude Sonnet 4.5   │ anthropic.claude-sonnet-4-5-20250929-v1:0  │ 1,024  │ 4    │ 5m, 1h              │
+│ Claude Haiku 4.5    │ anthropic.claude-haiku-4-5-20251001-v1:0   │ 4,096  │ 4    │ 5m, 1h              │
+│ Claude 3.7 Sonnet   │ anthropic.claude-3-7-sonnet-20250219-v1:0  │ 1,024  │ 4    │ 5m                  │
+│ Claude 3.5 Sonnet v2│ anthropic.claude-3-5-sonnet-20241022-v2:0  │ 1,024  │ 4    │ 5m                  │
+│ Claude 3.5 Haiku    │ anthropic.claude-3-5-haiku-20241022-v1:0   │ 2,048  │ 4    │ 5m                  │
+└─────────────────────┴────────────────────────────────────────────┴────────┴──────┴─────────────────────┘
+
+可缓存字段: system, messages, tools
+
+--- Converse API 缓存语法 ---
+
+缓存检查点:
+{
+  "cachePoint": {
+    "type": "default",
+    "ttl": "5m"          // "5m" 或 "1h"
+  }
+}
+
+System 缓存示例:
+{
+  "system": [
+    {"text": "You are a helpful assistant with a long context..."},
+    {"cachePoint": {"type": "default", "ttl": "1h"}}
+  ]
+}
+
+Messages 缓存示例:
+{
+  "messages": [{
+    "role": "user",
+    "content": [
+      {"text": "[大量静态文档内容...]"},
+      {"cachePoint": {"type": "default"}}
+    ]
+  }]
+}
+
+Tools 缓存示例:
+{
+  "toolConfig": {
+    "tools": [
+      {"toolSpec": { ... }},
+      {"cachePoint": {"type": "default"}}
+    ]
+  }
+}
+
+--- InvokeModel API 缓存语法 ---
+
+(使用 Anthropic 原生格式)
+{
+  "cache_control": {
+    "type": "ephemeral",
+    "ttl": "5m|1h"
+  }
+}
+
+示例:
+{
+  "anthropic_version": "bedrock-2023-05-31",
+  "messages": [{
+    "role": "user",
+    "content": [
+      {"type": "text", "text": "Large context here..."},
+      {
+        "type": "text",
+        "text": "Additional context...",
+        "cache_control": {"type": "ephemeral", "ttl": "1h"}
+      }
+    ]
+  }],
+  "max_tokens": 2048
+}
+
+--- 响应中的缓存指标 ---
+
+Converse:
+{
+  "usage": {
+    "cacheReadInputTokens": 1024,
+    "cacheWriteInputTokens": 2048,
+    "inputTokens": 512
+  }
+}
+
+--- 关键规则 ---
+
+1. 缓存前缀必须在请求间保持静态
+2. 1小时TTL的检查点必须在5分钟TTL之前
+3. 缓存命中不计入速率限制
+4. Claude简化缓存管理: 放一个检查点在静态内容末尾，系统自动向回查找~20个内容块
+
+--- 定价 ---
+
+- 缓存读取token: 约标准输入价格的 ~10%
+- 缓存写入token: 可能高于标准输入token价格
+- 未缓存token: 标准输入token价格
+
+================================================================================
+7. Extended Thinking (扩展思考)
+================================================================================
+
+注: AWS文档页面存在重定向问题，以下信息综合自多个来源。
+
+--- 功能说明 ---
+
+Extended Thinking 允许 Claude 在生成最终响应之前进行更深入的推理。
+模型会输出 "thinking" 内容块，展示其推理过程。
+
+--- 启用方式 ---
+
+InvokeModel API:
+{
+  "anthropic_version": "bedrock-2023-05-31",
+  "max_tokens": 16000,
+  "thinking": {
+    "type": "enabled",
+    "budget_tokens": 10000     // 思考预算token数
+  },
+  "messages": [...]
+}
+
+注意:
+- budget_tokens 必须小于 max_tokens
+- 启用 thinking 时，temperature 必须为 1 (默认值)
+- 不能同时设置 temperature != 1 和 thinking
+
+Converse API:
+通过 additionalModelRequestFields 传递或通过 reasoningContent 在响应中体现。
+
+--- 相关 Beta Headers ---
+
+- "Interleaved-thinking-2025-05-14": 允许交错思考(Claude 4+)
+- "dev-full-thinking-2025-05-14": 开发者模式，显示原始思考(Claude 4+)
+
+--- Converse 响应中的 Reasoning ---
+
+{
+  "reasoningContent": {
+    "reasoningText": {
+      "text": "Let me think about this...",
+      "signature": "hash-string"
+    },
+    "redactedContent": "base64-encoded-data"
+  }
+}
+
+--- 超时配置 ---
+
+- Claude 3.7 Sonnet 和 Claude 4+ 的超时期限: 60 分钟
+- AWS SDK 默认超时: 1 分钟
+- 建议设置: read_timeout >= 3600 秒
+
+import botocore.config
+config = botocore.config.Config(read_timeout=3600)
+client = boto3.client('bedrock-runtime', config=config)
+
+================================================================================
+8. Batch Inference (批量推理)
+================================================================================
+
+--- 概述 ---
+
+批量推理允许异步处理大量提示:
+1. 上传 JSONL 输入文件到 S3
+2. 提交批量推理作业
+3. 从 S3 获取结果
+
+--- 输入数据格式 (JSONL) ---
+
+每行一个 JSON 对象:
+
+InvokeModel 格式:
+{"recordId": "CALL0000001", "modelInput": {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 1024, "messages": [{"role": "user", "content": [{"type": "text", "text": "Your prompt here"}]}]}}
+
+Converse 格式:
+{"recordId": "CALL0000001", "modelInput": {"messages": [{"role": "user", "content": [{"text": "Your prompt here"}]}], "inferenceConfig": {"maxTokens": 1024}}}
+
+recordId: 可选，省略时系统自动添加(字母数字字符串)
+注意: 输出顺序不保证与输入顺序一致
+
+--- 创建作业 (API) ---
+
+API: CreateModelInvocationJob
+
+必填参数:
+  - jobName: 作业名称
+  - roleArn: 服务角色ARN
+  - modelId: 模型ID或ARN
+  - inputDataConfig: S3输入位置
+  - outputDataConfig: S3输出位置
+
+可选参数:
+  - modelInvocationType: "Converse" 或 "InvokeModel" (默认)
+  - timeoutDurationInHours: 超时时间(小时)
+  - tags: 标签
+  - vpcConfig: VPC配置
+  - clientRequestToken: 幂等性token
+
+--- 限制 ---
+
+- 不支持预置吞吐量模型
+- 跨账户输入/输出需要使用API方式(控制台不支持)
+- VPC配置仅API支持
+- 所有引用的资源文件必须在同一S3 bucket/文件夹
+- S3路径区分大小写
+- 支持 EventBridge 状态变更通知
+
+--- 服务配额 ---
+
+需查阅 AWS 文档获取:
+- 每个作业最小记录数
+- 单个输入文件最大记录数
+- 每个作业最大记录数
+- 批量推理输入文件大小限制
+- 批量推理作业大小限制
+
+================================================================================
+9. Guardrails (安全护栏)
+================================================================================
+
+--- 功能分类 ---
+
+1. Content Filters (内容过滤)
+   - 检测/过滤有害文本和图像
+   - 预定义类别: Hate, Insults, Sexual, Violence, Misconduct, Prompt Attack
+   - 可配置每个类别的过滤强度
+   - Standard层: 扩展到代码元素(注释、变量名、字符串)
+
+2. Denied Topics (拒绝主题)
+   - 定义要阻止的不良主题
+   - 适用于查询和响应
+
+3. Word Filters (词语过滤)
+   - 自定义词语/短语阻止(精确匹配)
+   - 内置脏话过滤选项
+   - 可阻止竞争对手名称
+
+4. Sensitive Information Filters (敏感信息过滤)
+   - 阻止/遮蔽PII: SSN, 生日, 地址等
+   - 概率检测敏感实体
+   - 自定义正则表达式模式
+
+5. Contextual Grounding Checks (上下文基础检查)
+   - 检测模型响应中的幻觉
+   - 验证响应是否基于源材料
+   - 适合RAG应用
+
+6. Automated Reasoning Checks (自动推理检查)
+   - 验证响应是否符合逻辑规则
+   - 检测幻觉并建议修正
+
+--- Converse API 中使用 ---
+
+{
+  "guardrailConfig": {
+    "guardrailId": "guardrail-id",
+    "guardrailVersion": "version"
+  }
+}
+
+也可以通过 GuardrailConverseContentBlock 选择性应用:
+{
+  "text": "Tell me what stocks to buy.",
+  "qualifiers": ["guard_content"]
+}
+
+--- 独立评估 API ---
+
+ApplyGuardrail API: 无需调用FM即可评估内容
+
+--- 注意事项 ---
+
+- Claude 4+ 模型目前不支持 Guardrails (Converse API)
+- Claude 3.x 系列支持 Guardrails
+- Guardrail 创建通过 AWS Console 或 Bedrock API
+
+================================================================================
+10. 与 Anthropic 直接 API 的差异对比
+================================================================================
+
+┌────────────────────────┬──────────────────────────────┬───────────────────────────────┐
+│ 方面                   │ Bedrock                       │ Anthropic 直接 API             │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 认证方式               │ AWS IAM / SigV4 签名          │ API Key (x-api-key)           │
+│                        │ 或 Bearer Token               │                               │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ API版本字段            │ anthropic_version:            │ anthropic-version header       │
+│                        │ "bedrock-2023-05-31"          │                               │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 端点                   │ bedrock-runtime.<region>.     │ api.anthropic.com              │
+│                        │ amazonaws.com                 │                               │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 模型标识               │ modelId 在 URL/header 中      │ model 在 request body 中       │
+│                        │ (Bedrock model ID 格式)       │ (如 "claude-sonnet-4-5-latest")│
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 统一API                │ Converse API (跨模型统一)     │ 无 (仅 Messages API)           │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 缓存语法(Converse)     │ cachePoint.type="default"     │ cache_control.type="ephemeral" │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 缓存语法(InvokeModel)  │ cache_control.type="ephemeral"│ cache_control.type="ephemeral" │
+│                        │ (与直接API相同)               │                               │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 流式调用               │ InvokeModelWithResponseStream │ stream=true 参数               │
+│                        │ 或 ConverseStream             │                               │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ Beta功能               │ anthropic_beta 在body中       │ anthropic-beta HTTP header     │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ Guardrails             │ 原生支持                      │ 无                             │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 批量推理               │ S3 JSONL + 异步作业           │ Message Batches API            │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 服务端工具调用         │ Lambda / AgentCore Gateway    │ 无 (仅客户端)                  │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 文档支持               │ S3 URI 引用支持               │ 仅 base64                      │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 视频支持               │ Converse API 原生支持         │ 无原生视频支持                  │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ Payload限制            │ 20 MB                         │ 无明确限制(按token计)          │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 超时                   │ SDK默认1分钟需手动增加        │ SDK自动处理                    │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 日志                   │ Bedrock Invocation Logging    │ 无内置                         │
+├────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ 数据存储               │ Bedrock不存储内容             │ 按数据保留政策                  │
+└────────────────────────┴──────────────────────────────┴───────────────────────────────┘
+
+================================================================================
+11. Bedrock 特有功能
+================================================================================
+
+1. Converse API
+   - 跨模型统一接口(支持 Anthropic, Amazon, Meta, Cohere, Mistral 等)
+   - 标准化消息格式
+   - 内置 S3 文档/图片/视频引用
+
+2. Guardrails
+   - 内容过滤、主题拒绝、敏感信息遮蔽
+   - 上下文基础检查(anti-hallucination)
+   - 自动推理检查
+   - 独立 ApplyGuardrail API
+
+3. 服务端工具调用
+   - Lambda 函数集成(MCP协议)
+   - AgentCore Gateway 集成
+   - 模型自动发现和执行工具
+
+4. Service Tier
+   - reserved / priority / default / flex 层级选择
+   - 影响请求优先级和定价
+
+5. Global vs Regional 端点
+   - Global: 动态路由，最大可用性
+   - Regional: 数据驻留合规，+10% 费用
+
+6. Prompt Management
+   - 模板化提示管理
+   - promptVariables 支持
+   - 与缓存集成
+
+7. Request Metadata
+   - 自定义元数据附加到请求
+   - 用于调用日志过滤
+
+8. VPC 支持
+   - 批量推理作业可配置 VPC
+   - 数据保护增强
+
+9. Bearer Token 认证
+   - 企业环境替代方案
+   - 支持 C#, Go, Java SDK
+
+10. Citations (引用)
+    - 文档处理时启用引用
+    - PDF 视觉分析需要启用 citations
+
+11. Invocation Logging
+    - 记录所有提示和完成
+    - 推荐至少30天滚动日志
+
+================================================================================
+完整请求示例汇总
+================================================================================
+
+--- InvokeModel 完整示例 (包含所有特性) ---
+
+{
+  "anthropic_version": "bedrock-2023-05-31",
+  "anthropic_beta": ["token-efficient-tools-2025-02-19"],
+  "max_tokens": 4096,
+  "system": "You are an expert analyst.",
+  "temperature": 0.7,
+  "top_k": 250,
+  "stop_sequences": ["END"],
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Analyze this document and use the search tool if needed.",
+          "cache_control": {"type": "ephemeral", "ttl": "1h"}
+        },
+        {
+          "type": "image",
+          "source": {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "<base64-data>"
+          }
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "custom",
+      "name": "search",
+      "description": "Search for information",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"}
+        },
+        "required": ["query"]
+      }
+    }
+  ],
+  "tool_choice": {"type": "auto"}
+}
+
+--- Converse 完整示例 (包含所有特性) ---
+
+Python boto3:
+
+import boto3
+
+client = boto3.client('bedrock-runtime', region_name='us-west-2')
+
+response = client.converse(
+    modelId='global.anthropic.claude-opus-4-6-v1',
+    system=[
+        {"text": "You are an expert analyst."},
+        {"cachePoint": {"type": "default", "ttl": "1h"}}
+    ],
+    messages=[
+        {
+            "role": "user",
+            "content": [
+                {"text": "Analyze this document."},
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report",
+                        "source": {
+                            "s3Location": {
+                                "uri": "s3://my-bucket/report.pdf"
+                            }
+                        },
+                        "citations": {"enabled": True}
+                    }
+                },
+                {"cachePoint": {"type": "default"}}
+            ]
+        }
+    ],
+    inferenceConfig={
+        "maxTokens": 4096,
+        "temperature": 0.7,
+        "topP": 0.9
+    },
+    toolConfig={
+        "tools": [{
+            "toolSpec": {
+                "name": "search",
+                "description": "Search for information",
+                "inputSchema": {
+                    "json": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string"}
+                        },
+                        "required": ["query"]
+                    }
+                }
+            }
+        }]
+    },
+    additionalModelRequestFields={"top_k": 200},
+    guardrailConfig={
+        "guardrailId": "my-guardrail-id",
+        "guardrailVersion": "1"
+    },
+    requestMetadata={"userId": "user123"},
+    serviceTier={"type": "default"}
+)
+
+================================================================================
+报告结束
+================================================================================

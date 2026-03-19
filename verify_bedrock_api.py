@@ -799,6 +799,52 @@ def test_url_image_not_supported():
 
 
 # ============================================================
+# 31. Token Counting via boto3 count_tokens API
+# ============================================================
+def test_boto3_count_tokens():
+    models = [
+        ("Haiku 4.5", "anthropic.claude-haiku-4-5-20251001-v1:0"),
+        ("Sonnet 4.6", "anthropic.claude-sonnet-4-6"),
+        ("Opus 4.6", "anthropic.claude-opus-4-6-v1"),
+    ]
+    results_list = []
+    for name, model_id in models:
+        resp = boto_client.count_tokens(
+            modelId=model_id,
+            input={
+                'converse': {
+                    'messages': [{'role': 'user', 'content': [{'text': 'Hello, how are you doing today? This is a test.'}]}]
+                }
+            }
+        )
+        results_list.append(f"{name}: {resp['inputTokens']} tokens")
+    return "; ".join(results_list)
+
+
+# ============================================================
+# 32. 1h Cache TTL on Sonnet 4.5 (InvokeModel)
+# ============================================================
+def test_1h_cache_ttl():
+    long_text = "Testing one hour cache TTL on Bedrock. " * 300
+    body = json.dumps({
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 50,
+        "system": [{
+            "type": "text",
+            "text": long_text,
+            "cache_control": {"type": "ephemeral", "ttl": "1h"}
+        }],
+        "messages": [{"role": "user", "content": "Say OK"}]
+    })
+    response = boto_client.invoke_model(body=body, modelId=SONNET_MODEL)
+    result = json.loads(response['body'].read())
+    usage = result.get('usage', {})
+    cache_creation = usage.get('cache_creation', {})
+    has_1h = cache_creation.get('ephemeral_1h_input_tokens', 0) > 0 or usage.get('cache_creation_input_tokens', 0) > 0 or usage.get('cache_read_input_tokens', 0) > 0
+    return f"1h TTL accepted. Usage: {usage}"
+
+
+# ============================================================
 # RUN ALL TESTS
 # ============================================================
 if __name__ == "__main__":
@@ -868,6 +914,10 @@ if __name__ == "__main__":
 
     # Token Counting
     test("27. Token Counting (Anthropic SDK)", test_token_counting)
+    test("31. Token Counting (boto3 count_tokens API)", test_boto3_count_tokens)
+
+    # 1h Cache TTL
+    test("32. 1h Cache TTL (Sonnet 4.5 InvokeModel)", test_1h_cache_ttl)
 
     # ============================================================
     # SUMMARY

@@ -427,7 +427,7 @@ response = client.invoke_model(body=body, modelId="us.anthropic.claude-sonnet-4-
 | 方面 | Anthropic | Bedrock |
 |------|-----------|---------|
 | 5 分钟 TTL | 支持 | **支持** |
-| 1 小时 TTL | 支持 | **部分支持** (仅 Opus 4.5, Sonnet 4.5, Haiku 4.5 支持) |
+| 1 小时 TTL | 支持 | **部分支持** (Opus 4.5, Sonnet 4.5, Haiku 4.5 实测可用。注: Anthropic 功能矩阵排除 Bedrock，但 AWS 文档和实测均确认支持) |
 | 自动缓存 (Automatic caching) | 支持 (顶层 `cache_control` 参数) | **不支持** (需手动在 content block 上添加) |
 | 最大检查点数 | 4 | 4 |
 | Lookback window | 20 blocks | 20 blocks |
@@ -857,7 +857,7 @@ body = json.dumps({
 | **Tool Search** (BM25/Regex) | 支持 | **支持** | - |
 | **Web Search** (`web_search_20260209`) | 支持 (server-side) | **不支持** | 见下方 workaround |
 | **Web Fetch** (`web_fetch_20260209`) | 支持 (server-side) | **不支持** | 见下方 workaround |
-| **Code Execution** (`code_execution_20260120`) | 支持 (server-side) | **不支持** | 见下方 workaround |
+| **Code Execution** (`code_execution_20260120`) | 支持 (server-side) | **InvokeModel/Converse 不支持**，但 Bedrock Agents 提供 Code Interpreter | 见下方 workaround |
 
 ### 14.2 Web Search Workaround
 
@@ -896,9 +896,9 @@ tools = [{
 
 ### 14.3 Code Execution Workaround
 
-Bedrock 不支持 Anthropic 的 server-side Code Execution sandbox。
+Bedrock InvokeModel/Converse API 不支持 Anthropic 的 server-side Code Execution sandbox。但 **Bedrock Agents 提供了 Code Interpreter 功能**，可通过 Agent 配置启用 Python 代码执行沙箱，适用于数据分析、图表生成等场景。
 
-**Workaround 方案**:
+对于直接使用 InvokeModel/Converse API 的场景，可采用以下 workaround：
 ```python
 # 方案1: 使用 AWS Lambda 作为代码执行沙箱
 # 方案2: 使用 Docker 容器执行代码
@@ -945,17 +945,17 @@ def web_fetch_tool(url: str) -> str:
 | 功能 | 说明 | Workaround |
 |------|------|------------|
 | **Files API** | 上传文件复用，避免每次请求重传 | 自建文件存储 + base64 编码，或使用 S3 (Converse API) |
-| **Token Counting API** | 发送前统计 token 数量 | **Bedrock 不支持** (SDK 明确报错: "Token counting is not supported in Bedrock yet") |
+| **Token Counting API** | 发送前统计 token 数量 | **AnthropicBedrock SDK 不支持** (报错)，但 **boto3 `count_tokens()` 已支持** (需用基础模型 ID) |
 | **Data Residency** (`inference_geo`) | 请求级别的地理位置控制 | 使用 Bedrock 的 Regional 端点前缀 (`us.`/`eu.` 等) |
 | **Automatic Prompt Caching** | 顶层 `cache_control` 参数 | 手动在最后一个可缓存块上添加 `cache_control` |
 | **Prompt Caching (Opus 4.6)** | 实测 Bedrock 上不支持 (cache tokens=0) | 等待 AWS 更新，或使用 Sonnet 4.6/Sonnet 4.5 等已支持的模型 |
-| **1 小时 Prompt Cache TTL** | 部分模型上不支持 | 仅对 Opus 4.5, Sonnet 4.5, Haiku 4.5 可用 |
+| **1 小时 Prompt Cache TTL** | 部分支持 (见注) | Anthropic 功能矩阵排除 Bedrock，但 AWS 文档列出 Opus 4.5/Sonnet 4.5/Haiku 4.5 支持。**实测 Sonnet 4.5 确认可用** (以实测为准) |
 | **Web Search Tool** (server-side) | 内置网页搜索 | 自建 tool + 第三方搜索 API |
 | **Web Fetch Tool** (server-side) | 内置网页抓取 | 自建 tool + httpx |
-| **Code Execution Tool** (server-side) | 内置沙箱代码执行 | 自建 tool + Lambda/Docker |
+| **Code Execution Tool** (server-side) | InvokeModel/Converse 不支持，但 Bedrock Agents 有 Code Interpreter | 自建 tool + Lambda/Docker，或使用 Bedrock Agents Code Interpreter |
 | **Programmatic Tool Calling** | 在代码执行容器内调用 tools | 自建逻辑 |
 | **Agent Skills API** | 预构建的 Agent 技能 (PPT, Excel 等) | 自建 MCP server 或 tool |
-| **MCP Connector** | 直接从 Messages API 连接 MCP server | 自建 MCP client + tool routing |
+| **MCP Connector** | InvokeModel/Converse API 不支持，但 **Responses API 支持 MCP** (通过 Lambda/AgentCore Gateway) | InvokeModel/Converse 场景需自建 MCP client + tool routing |
 | **`container` 参数** | 跨请求复用容器 | 不适用 |
 | **`service_tier` 参数** | 选择 `auto`/`standard_only` | Bedrock 有自己的 serviceTier 机制 |
 | **Skills API** (Beta) | 创建管理自定义技能 | 自建 |
@@ -964,21 +964,30 @@ def web_fetch_tool(url: str) -> str:
 
 ### 15.2 Token Counting 说明
 
-Anthropic 有专门的 `/v1/messages/count_tokens` 端点，Bedrock **不支持此功能**。
-
-实测验证: `AnthropicBedrock` SDK 调用 `count_tokens()` 时直接抛出异常:
+Anthropic 有专门的 `/v1/messages/count_tokens` 端点。`AnthropicBedrock` SDK 调用 `count_tokens()` 时会抛出异常:
 ```
 anthropic.AnthropicError: Token counting is not supported in Bedrock yet
 ```
 
-**Workaround 方案**:
+但 **boto3 原生的 `count_tokens()` API 实际上已支持 Claude 模型** (实测验证)。需注意：
+- 必须使用**基础模型 ID** (如 `anthropic.claude-sonnet-4-6`)，不能带 `us.`/`global.` 前缀
+- 输入格式使用 Converse 风格的 `input.converse.messages`
+
 ```python
-# 方案1: 使用 anthropic 的 tokenizer 本地估算
-# Claude 使用的 tokenizer 不公开，但可以用 tiktoken 的 cl100k_base 做粗略估算
-import tiktoken
-enc = tiktoken.get_encoding("cl100k_base")
-tokens = enc.encode("Hello, how are you?")
-print(f"Estimated tokens: {len(tokens)}")
+import boto3
+
+client = boto3.client('bedrock-runtime', region_name='us-west-2')
+
+# 方案1 (推荐): boto3 count_tokens API - 无需实际推理，不消耗 token 费用
+resp = client.count_tokens(
+    modelId='anthropic.claude-sonnet-4-6',  # 注意: 必须用基础模型 ID，不能带 us./global. 前缀
+    input={
+        'converse': {
+            'messages': [{'role': 'user', 'content': [{'text': 'Hello, how are you?'}]}]
+        }
+    }
+)
+print(f"Input tokens: {resp['inputTokens']}")  # 精确计数
 
 # 方案2: 发送一个 max_tokens=1 的请求，从 response.usage.input_tokens 获取精确计数
 # (会消耗少量 token 费用)
@@ -991,6 +1000,8 @@ response = client.messages.create(
 )
 print(f"Exact input tokens: {response.usage.input_tokens}")
 ```
+
+> **注意**: Anthropic 功能矩阵显示 Bedrock 理论上支持 token counting，但 AnthropicBedrock SDK 尚未适配。建议直接使用 boto3 `count_tokens()` API，或关注后续 SDK 更新。
 
 ---
 
@@ -1114,7 +1125,7 @@ options = ClaudeAgentOptions(
 - [ ] **Web Search**: 接入第三方搜索 API (Tavily/Serper/Brave)
 - [ ] **Web Fetch**: 使用 httpx + BeautifulSoup 自建
 - [ ] **Code Execution**: 使用 Lambda 或 Docker 沙箱
-- [ ] **Token Counting**: Bedrock 不支持，使用 `max_tokens=1` 请求获取精确 input_tokens 或本地 tokenizer 估算
+- [ ] **Token Counting**: AnthropicBedrock SDK 不支持，改用 boto3 `count_tokens()` API (需用基础模型 ID)
 
 ### Phase 4: Agent SDK 迁移
 

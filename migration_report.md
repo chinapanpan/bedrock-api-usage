@@ -702,24 +702,32 @@ print(status['status'])  # InProgress, Completed, Failed, etc.
 | 方面 | Anthropic 直接 API | Bedrock |
 |------|-------------------|---------|
 | JSON Schema 输出 | `output_config.format` = JSON Schema | **支持，但参数格式有差异** (已验证) |
-| Tool strict mode | `strict: true` on tool definition | **支持** |
+| Schema 包装键 | `format.json_schema.schema` (有 `name` 字段) | **`format.schema` 直接传** (无 `json_schema` 包装层) |
 | `additionalProperties` 要求 | 不强制 | **Bedrock 强制要求 `additionalProperties: false`** |
-| Vertex AI | 不支持 | - |
+| Tool strict mode | `strict: true` on tool definition | **支持** |
 
 ### 13.1 参数格式差异 (已实测验证)
 
+**关键差异**: Anthropic 直接 API 使用 `json_schema` 包装键 + `name` 字段，Bedrock 使用 `schema` 直接传且必须设置 `additionalProperties: false`。
+
 ```python
-# Anthropic 直接 API 用 "json_schema" 包装键
-# Bedrock InvokeModel 用 "schema" 直接传
-# 注意: 1) 用 "schema" 而非 "json_schema"
-#        2) 必须设置 "additionalProperties": false
+# Anthropic 直接 API 格式:
+# output_config.format = {
+#     "type": "json_schema",
+#     "json_schema": {              <-- Anthropic 用 "json_schema" 包装
+#         "name": "person",         <-- 需要 name 字段
+#         "schema": { ... }
+#     }
+# }
+
+# Bedrock InvokeModel 格式 (实测验证):
 body = json.dumps({
     "anthropic_version": "bedrock-2023-05-31",
     "max_tokens": 1024,
     "output_config": {
         "format": {
             "type": "json_schema",
-            "schema": {                                  # Bedrock 直接用 schema
+            "schema": {                                  # Bedrock 直接用 "schema"，无需 "json_schema" 包装
                 "type": "object",
                 "properties": {
                     "name": {"type": "string"},
@@ -735,7 +743,9 @@ body = json.dumps({
 # 返回: {"name":"John","age":30}
 ```
 
-> **实测验证**: 不设置 `additionalProperties: false` 会报错 `ValidationException: output_config.format.schema: For 'object' type, 'additionalProperties' must be explicitly set to false`
+> **实测验证**:
+> - 使用 `json_schema` 包装键会报错: `output_config.format.schema: Field required`
+> - 不设置 `additionalProperties: false` 会报错: `For 'object' type, 'additionalProperties' must be explicitly set to false`
 
 ---
 
@@ -746,7 +756,7 @@ body = json.dumps({
 | Built-in Tool | Anthropic API | Bedrock | Workaround |
 |--------------|---------------|---------|------------|
 | **Bash** (`bash_20250124`) | 支持 | **支持** (client-side) | - |
-| **Text Editor** (`text_editor_20250728`) | 支持 | **支持** (client-side) | - |
+| **Text Editor** (`text_editor_20250728`) | 支持 | **支持** (client-side, name 必须为 `str_replace_based_edit_tool`) | - |
 | **Computer Use** (`computer_20241022`) | 支持 (Beta) | **支持** (Beta, 工具 type 仍为 `computer_20241022`) | Bedrock beta header: `computer-use-2025-01-24` (Claude 3.7) 或 `computer-use-2024-10-22` |
 | **Memory** (`memory`) | 支持 | **支持** | - |
 | **Tool Search** (BM25/Regex) | 支持 | **支持** | - |
